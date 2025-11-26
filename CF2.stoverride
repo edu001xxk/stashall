@@ -1,5 +1,5 @@
 name: Cloudflare 优选套件
-desc: 包含首页磁贴 + 自动生成优选节点
+desc: 磁贴测速 + 自动生成策略组
 
 # ================================
 # 1. 首页磁贴 (UI 显示)
@@ -13,18 +13,19 @@ tiles:
 
 script-providers:
   CF-Best-IP:
-    # 🔗 这里填 cf.js 的链接 (用于测速和存IP)
-    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf2.js?v=final"
+    # 🔗 这里的 cf.js 我根据你的路径自动补全了
+    # 为了防止缓存，我在后面加了 ?v=new1
+    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf.js?v=new1"
     interval: 0
 
 # ================================
 # 2. 自动节点 (Proxy 生成)
 # ================================
 proxy-providers:
-  "🚀 自动优选":
+  "CF-Provider":
     type: script
-    # 🔗 这里填 cf-node.js 的链接 (用于读取IP并生成节点)
-    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf-node.js?v=fix_node_01"
+    # 🔗 这里填入了你刚才给我的 cf-node.js 链接
+    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf-node.js?v=new1"
     interval: 300
     health-check:
       enable: true
@@ -32,12 +33,10 @@ proxy-providers:
       interval: 300
 
 # ================================
-# 3. (可选) 自动把节点加入策略组
+# 3. 策略组 (Group)
 # ================================
-# 如果你想让这个节点自动出现在某个组里，可以加下面这段
-# 如果不加，它会作为一个单独的“代理集”出现在列表底部，也能用
-# proxy-groups:
-#   - name: "CF自动组"
-#     type: select
-#     use:
-#       - "🚀 自动优选"
+proxy-groups:
+  - name: "🚀 自动优选"
+    type: select
+    use:
+      - "CF-Provider"
