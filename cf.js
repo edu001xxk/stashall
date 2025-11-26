@@ -1,7 +1,8 @@
 /*
- * Cloudflare 优选 IP - Stash 净化版
- * 修复：去除重复单位 (msms -> ms)
- * 优化：去除小数位，界面更整洁
+ * Cloudflare 优选 IP - Stash 极致紧凑版
+ * 修复：日志找回下载速度
+ * 优化：磁贴去除图标，使用缩写 (CM/CT/CU/v6)
+ * 优化：磁贴去除单位，防止换行
  */
 
 // ================= 1. MD5 算法 (不变) =================
@@ -41,10 +42,8 @@ const time = Date.now().toString();
 const key = md5(md5("DdlTxtN0sUOu") + "70cloudflareapikey" + time);
 const realUrl = `https://api.uouin.com/index.php/index/Cloudflare?key=${key}&time=${time}`;
 
-// ⚡️ 净化核心：强力清洗非数字字符
 function cleanNum(str) {
     if (!str) return 0;
-    // 强制转换为浮点数，自动丢弃 'ms', 'mb' 等后缀
     return parseFloat(str);
 }
 
@@ -65,6 +64,7 @@ $httpClient.get({
     headers: { "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1" },
     timeout: 15000 
 }, function(error, response, data) {
+    
     if (error || response.status !== 200) {
         $done({ title: "CF优选失败", content: "网络错误", icon: "exclamationmark.triangle", backgroundColor: "#FF3B30" });
         return;
@@ -80,58 +80,65 @@ $httpClient.get({
         let cucc = getBestIP(d.cucc ? d.cucc.info : null);
         let ipv6 = getBestIP(d.ipv6 ? d.ipv6.info : null);
 
-        // 🎨 美化排版函数
-        function fmt(item, isV6) {
-            if (!item) return "无数据";
+        // === 1. 磁贴格式化 (极致压缩，防止换行) ===
+        function tileFmt(label, item, isV6) {
+            if (!item) return ""; // 没数据就不显示这一行
             let ip = item.ip;
-            // IPv6 截断逻辑
-            if (isV6 && ip.length > 15) ip = ip.substring(0, 13) + "..";
             
-            // ⚡️ 重点：强制取整，去除 msms 和 mbMB
+            // IPv6 截断: 2a06:98c1..
+            if (isV6 && ip.length > 13) ip = ip.substring(0, 11) + "..";
+            
+            // 数据取整: 50/500 (去掉单位)
             let p = Math.round(cleanNum(item.ping));
             let b = Math.round(cleanNum(item.bandwidth));
             
-            // 最终格式：IP (50ms/100M)
-            return `${ip} (${p}ms/${b}M)`;
+            // 最终格式: CM 1.2.3.4 (50/500)
+            return `${label} ${ip} (${p}/${b})\n`;
         }
-        
-        // 1. 卡片文本
-        let tileText = "";
-        tileText += `📱 ${fmt(cmcc, false)}\n`;
-        tileText += `🌐 ${fmt(ctcc, false)}\n`;
-        tileText += `📶 ${fmt(cucc, false)}\n`;
-        tileText += `🦕 ${fmt(ipv6, true)}`;
 
-        // 2. 日志文本 (对齐版)
-        function pad(str, len) { return str.padEnd(len, " "); }
+        let tileText = "";
+        tileText += tileFmt("CM", cmcc, false); // 移动
+        tileText += tileFmt("CT", ctcc, false); // 电信
+        tileText += tileFmt("CU", cucc, false); // 联通
+        tileText += tileFmt("v6", ipv6, true);  // IPv6
+        
+        // 去掉最后多余的换行符
+        tileText = tileText.trim();
+
+
+        // === 2. 日志格式化 (详细版，带单位，方便复制) ===
+        // 对齐函数
+        function pad(str) { return str.padEnd(16, " "); }
         
         let logText = "======== Cloudflare 优选结果 ========\n\n";
-        // ⚡️ 重点：日志里也不要那些重复的单位了
-        if(cmcc) logText += `📱 移动: ${pad(cmcc.ip, 15)} (${Math.round(cleanNum(cmcc.ping))}ms)\n`;
-        if(ctcc) logText += `🌐 电信: ${pad(ctcc.ip, 15)} (${Math.round(cleanNum(ctcc.ping))}ms)\n`;
-        if(cucc) logText += `📶 联通: ${pad(cucc.ip, 15)} (${Math.round(cleanNum(cucc.ping))}ms)\n`;
-        if(ipv6) logText += `🦕 IPv6: ${ipv6.ip} (${Math.round(cleanNum(ipv6.ping))}ms)`;
+        logText += "格式说明：IP (延迟ms / 带宽MB)\n";
+        logText += "-----------------------------------\n";
+        
+        // 修复：这里把 item.bandwidth 加回来了！
+        if(cmcc) logText += `CM: ${pad(cmcc.ip)} (${Math.round(cleanNum(cmcc.ping))}ms / ${cmcc.bandwidth})\n`;
+        if(ctcc) logText += `CT: ${pad(ctcc.ip)} (${Math.round(cleanNum(ctcc.ping))}ms / ${ctcc.bandwidth})\n`;
+        if(cucc) logText += `CU: ${pad(cucc.ip)} (${Math.round(cleanNum(cucc.ping))}ms / ${cucc.bandwidth})\n`;
+        if(ipv6) logText += `v6: ${ipv6.ip} (${Math.round(cleanNum(ipv6.ping))}ms / ${ipv6.bandwidth})`;
         
         logText += "\n\n===================================";
-        console.log(logText);
+        console.log(logText); // 打印到日志
 
-        // 3. 颜色判断
+        // === 3. 动态背景色 ===
         let pings = [cmcc, ctcc, cucc, ipv6].filter(x => x).map(x => cleanNum(x.ping));
         let minPing = Math.min(...pings);
-        let color = "#34C759";
-        if (minPing > 100) color = "#FF9500";
-        if (minPing > 200) color = "#FF3B30";
+        let bgColor = "#34C759";
+        if (minPing > 100) bgColor = "#FF9500";
+        if (minPing > 200) bgColor = "#FF3B30";
 
-        // 4. 更新UI
         $done({
-            title: "CF优选 (延迟/带宽)",
-            content: tileText,
+            title: "CF优选 (ms/MB)", // 标题说明单位
+            content: tileText || "暂无数据",
             icon: "network",
-            backgroundColor: color
+            backgroundColor: bgColor
         });
         
         if (typeof $notification !== 'undefined') {
-            $notification.post("CF 优选完成", "结果已优化，请查看日志", "已去除重复单位");
+             $notification.post("CF 优选完成", "详细结果已写入日志", "请去日志页面复制IP");
         }
 
     } catch (e) {
