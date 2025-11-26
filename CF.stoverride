@@ -1,0 +1,10 @@
+name: Cloudflare优选
+desc: 自动优选CF IP并显示在首页Tile
+script-providers:
+  "CF优选":
+    type: tile
+    interval: 0
+    # 下面这行引号里，填你第一步里复制的那个 [JS链接]
+    script-url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf.js"
+    icon: network
+    url: "http://www.google.com"
