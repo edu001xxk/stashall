@@ -25,7 +25,7 @@ proxy-providers:
   "CF-Provider":
     type: script
     # 🔗 这里填入了你刚才给我的 cf-node.js 链接
-    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf-node.js?v=new2"
+    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf-node.js?v=new3"
     interval: 300
     health-check:
       enable: true
