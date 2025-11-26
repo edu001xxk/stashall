@@ -24,7 +24,7 @@ proxy-providers:
   "🚀 自动优选":
     type: script
     # 🔗 这里填 cf-node.js 的链接 (用于读取IP并生成节点)
-    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf-node.js?v=final"
+    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf-node.js?v=fix_node_01"
     interval: 300
     health-check:
       enable: true
