@@ -1,38 +1,48 @@
 /*
- * Cloudflare 节点生成器 - 绝对防呆版
- * 无论如何都会输出一个节点，防止 Stash 显示 0
+ * Cloudflare 节点生成器 - 完整字段修复版
+ * 采用您提供的标准 VLESS 格式结构
  */
 
-// 1. 尝试读取优选 IP，读不到就用默认的
-let savedIP = $persistentStore.read("CF_BEST_IP");
-let address = "cf.zhetengsha.eu.org"; // 默认地址
-
-if (savedIP && savedIP.length > 6 && savedIP.indexOf(".") > -1) {
-    address = savedIP;
-    console.log("✅ [CF生成] 使用优选IP: " + address);
-} else {
-    console.log("⚠️ [CF生成] 未找到优选IP，使用默认域名");
+// 1. 读取优选IP，读不到就用默认的
+var savedIP = $persistentStore.read("CF_BEST_IP");
+if (!savedIP || savedIP.length < 5) {
+    savedIP = "cf.zhetengsha.eu.org"; // 您的默认域名
 }
 
-// 2. 构建节点 (严格 JSON 格式)
-let proxy = {
-    name: "🚀 自动优选 | " + address,
-    type: "vless",
-    server: address,
-    port: 443,
+// 2. 定义配置信息 (方便您核对)
+var myConfig = {
     uuid: "87d1bfd4-574e-4c96-ad42-0426f27461ff",
-    tls: true,
-    "skip-cert-verify": true,
-    servername: "_acme-challenge.2go.cloudns.be",
-    network: "ws",
-    "ws-opts": {
-        path: "/?ed",
-        headers: {
-            Host: "_acme-challenge.2go.cloudns.be"
-        }
-    },
-    udp: true
+    host: "_acme-challenge.2go.cloudns.be",
+    path: "/?ed"
 };
 
-// 3. 输出 (使用最原始的 return 方式，兼容性最强)
-$done({ proxies: [proxy] });
+// 3. 输出节点 (严格按照您给的格式补全了 cipher, flow, sni 等字段)
+$done({
+  proxies: [{
+    "name": "🚀 自动优选 | " + savedIP,
+    "type": "vless",
+    "server": savedIP,
+    "port": 443,
+    "uuid": myConfig.uuid,
+    "network": "ws",
+    "tls": true,
+    "udp": true,
+    "skip-cert-verify": true,
+    
+    // 补充字段 (按照您的参考格式)
+    "cipher": "auto",
+    "flow": "",
+    "alterId": 0,
+    
+    // 关键连接字段
+    "servername": myConfig.host,
+    "sni": myConfig.host, // 加上了您提到的 sni
+    
+    "ws-opts": {
+      "path": myConfig.path,
+      "headers": {
+        "Host": myConfig.host
+      }
+    }
+  }]
+});
