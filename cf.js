@@ -1,22 +1,9 @@
 /*
- * Cloudflare 优选 IP 脚本 (Stash 专用版)
- * 功能：
- * 1. 优选 移动/联通/电信/IPv6 线路
- * 2. 弹窗通知结果
- * 3. 更新 Stash 首页 Tile (卡片)
+ * Cloudflare 优选 IP - Stash Tile 专用版
+ * 包含完整 MD5 算法，直接复制即可使用
  */
 
-// ============================================
-// 工具函数
-// ============================================
-function $notify(title, subtitle, body) {
-  // Stash 支持标准通知接口
-  if (typeof $notification !== 'undefined') {
-    $notification.post(title, subtitle, body);
-  }
-}
-
-// MD5 (保持不变)
+// ================= 1. MD5 核心算法 (必须保留) =================
 function md5cycle(x, k) {
   let a = x[0], b = x[1], c = x[2], d = x[3];
   function cmn(q, a, b, x, s, t) { a = (a + q + x + t) | 0; return (((a << s) | (a >>> (32 - s))) + b) | 0; }
@@ -48,84 +35,75 @@ function rhex(n) { const s = "0123456789abcdef"; let j, str = ""; for (j = 0; j 
 function hex(x) { return x.map(rhex).join(""); }
 function md5(s) { return hex(md51(s)); }
 
+// ================= 2. 优选核心逻辑 =================
 const time = Date.now().toString();
 const key = md5(md5("DdlTxtN0sUOu") + "70cloudflareapikey" + time);
-const url = `https://api.uouin.com/index.php/index/Cloudflare?key=${key}&time=${time}`;
+const realUrl = `https://api.uouin.com/index.php/index/Cloudflare?key=${key}&time=${time}`;
 
-const myRequest = {
-  url: url,
-  headers: {
-    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
-    "Accept": "application/json, text/plain, */*",
-    "Referer": "https://api.uouin.com/cloudflare.html",
-    "X-Requested-With": "XMLHttpRequest"
-  }
-};
-
-function getBestIP(info) {
-  if (!info || info.length === 0) return null;
-  const valid = info.filter(i => i.loss === "0.00%");
-  const targetList = valid.length > 0 ? valid : info;
-  const arr = targetList.map(i => {
-    let p = parseFloat(i.ping);
-    let bw = parseFloat(i.bandwidth.replace("mb",""));
-    let score = (100 - p) * 0.5 + bw * 0.5;
-    return { ip: i.ip, ping: p, bw, score };
-  });
-  arr.sort((a,b) => b.score - a.score);
-  return arr[0];
+function getBestIP(list) {
+    if(!list) return null;
+    let v = list.filter(i => i.loss === "0.00%");
+    if(v.length===0) return list[0];
+    // 按评分排序 (延迟低+带宽大)
+    v.sort((a,b) => {
+        let scoreA = (100 - parseFloat(a.ping)) * 0.5 + parseFloat(a.bandwidth.replace("mb","")) * 0.5;
+        let scoreB = (100 - parseFloat(b.ping)) * 0.5 + parseFloat(b.bandwidth.replace("mb","")) * 0.5;
+        return scoreB - scoreA;
+    });
+    return v[0];
 }
 
-$httpClient.get(myRequest, function(error, response, data) {
-  if (error || response.status !== 200) {
-    let errMsg = error || `HTTP ${response.status}`;
-    console.log(`[CF优选] 失败: ${errMsg}`);
-    $done({
-        title: "CF优选失败",
-        content: "网络错误或超时",
-        icon: "exclamationmark.triangle"
-    });
-    return;
-  }
-  
-  try {
-    let bodyObj = JSON.parse(data);
-    let d = bodyObj.data;
-    
-    if (!d) {
-      $done({ title: "CF优选", content: "API 数据为空", icon: "xmark.circle" });
-      return;
+$httpClient.get({
+    url: realUrl,
+    headers: { "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1" },
+    timeout: 15000 // 15秒超时
+}, function(error, response, data) {
+    if (error || response.status !== 200) {
+        $done({
+            title: "CF优选",
+            content: "获取失败: 网络错误",
+            icon: "exclamationmark.triangle",
+            backgroundColor: "#FF3B30"
+        });
+        return;
     }
 
-    let bestMobile = getBestIP(d.cmcc ? d.cmcc.info : null);
-    let bestUnicom = getBestIP(d.cucc ? d.cucc.info : null);
-    let bestTelecom = getBestIP(d.ctcc ? d.ctcc.info : null);
-    let bestIPv6    = getBestIP(d.ipv6 ? d.ipv6.info : null);
-    
-    // 优先显示一个主要结果给 Tile (例如移动)
-    // 逻辑：谁的分数高显示谁，或者默认显示移动
-    let mainShow = bestMobile || bestTelecom || bestUnicom;
-    
-    // 弹窗显示详情
-    let msg = "";
-    if (bestMobile) msg += `📱移:${bestMobile.ip}\n`;
-    if (bestUnicom) msg += `📶联:${bestUnicom.ip}\n`;
-    if (bestTelecom) msg += `🌐电:${bestTelecom.ip}\n`;
-    if (bestIPv6)    msg += `🦕v6:${bestIPv6.ip}`;
+    try {
+        let bodyObj = JSON.parse(data);
+        let d = bodyObj.data;
+        
+        if (!d) throw new Error("无数据");
 
-    $notify("CF 全网优选完成", "点击查看所有线路", msg);
-    
-    // 更新 Stash 首页 Tile
-    // 注意：Tile 只能显示有限的字符
-    $done({
-        title: "Cloudflare 优选",
-        content: mainShow ? `IP: ${mainShow.ip}\n延迟: ${mainShow.ping}ms` : "未找到可用IP",
-        icon: "network",
-        backgroundColor: "#00BFFF"
-    });
+        let best = getBestIP(d.cmcc ? d.cmcc.info : null) || 
+                   getBestIP(d.ctcc ? d.ctcc.info : null) || 
+                   getBestIP(d.cucc ? d.cucc.info : null);
 
-  } catch(e) {
-    console.log(`[CF优选] 异常: ${e}`);
-    $done({ title: "脚本异常", content: "解析错误", icon: "xmark.octagon" });
-  }
+        if (best) {
+            // 成功显示绿色卡片
+            $done({
+                title: "CF 优选成功",
+                content: `IP: ${best.ip}\n延迟: ${best.ping}ms  带宽: ${best.bandwidth}`,
+                icon: "checkmark.circle",
+                backgroundColor: "#34C759"
+            });
+            // 顺便发个通知
+            if (typeof $notification !== 'undefined') {
+                $notification.post("CF 优选成功", `IP: ${best.ip}`, `延迟: ${best.ping}ms`);
+            }
+        } else {
+            $done({
+                title: "CF优选",
+                content: "无可用优选IP",
+                icon: "xmark.circle",
+                backgroundColor: "#FF9500"
+            });
+        }
+    } catch (e) {
+        $done({
+            title: "脚本错误",
+            content: "数据解析异常",
+            icon: "xmark.octagon",
+            backgroundColor: "#FF3B30"
+        });
+    }
 });
