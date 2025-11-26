@@ -14,7 +14,7 @@ tiles:
 script-providers:
   CF-Best-IP:
     # 🔗 这里填 cf.js 的链接 (用于测速和存IP)
-    url: "https://raw.githubusercontent.com/你的用户名/仓库/分支/cf.js?v=final"
+    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf2.js?v=final"
     interval: 0
 
 # ================================
@@ -24,7 +24,7 @@ proxy-providers:
   "🚀 自动优选":
     type: script
     # 🔗 这里填 cf-node.js 的链接 (用于读取IP并生成节点)
-    url: "https://raw.githubusercontent.com/你的用户名/仓库/分支/cf-node.js?v=final"
+    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf-node.js?v=final"
     interval: 300
     health-check:
       enable: true
