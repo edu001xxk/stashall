@@ -1,0 +1,120 @@
+name: "CF优选 (CDN内嵌版)"
+desc: "解决无法读取本地文件和网络下载失败的问题"
+
+# ==================================
+# 1. 首页磁贴 (UI & 测速)
+# ==================================
+tiles:
+  - name: CF-Speedtest
+    title: Cloudflare 四网优选
+    content: 点击运行测速
+    icon: network
+    collapsed: false
+
+script-providers:
+  CF-Speedtest:
+    interval: 0
+    # 👇 这里的 URL 只是个幌子，为了满足格式要求
+    url: "https://fastly.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"
+    
+    # 👇 真正的代码在这里 (直接内嵌)
+    content: |
+      const url = "https://api.uouin.com/index.php/index/Cloudflare?key=123&time=" + Date.now();
+      
+      function getBest(list) {
+          if(!list) return null;
+          let v = list.filter(i => i.loss === "0.00%");
+          if(v.length===0) return list[0];
+          v.sort((a,b) => parseFloat(a.ping) - parseFloat(b.ping));
+          return v[0];
+      }
+
+      $httpClient.get({url: url, timeout: 15000}, function(error, response, data) {
+          if (error) { $done({title:"失败", content:"网络错误", backgroundColor:"#FF3B30"}); return; }
+          try {
+              let d = JSON.parse(data).data;
+              let cm = getBest(d.cmcc?.info);
+              let ct = getBest(d.ctcc?.info);
+              let cu = getBest(d.cucc?.info);
+              let v6 = getBest(d.ipv6?.info);
+              
+              // 保存 IP 到系统存储
+              if(cm) $persistentStore.write(cm.ip, "CF_IP_CM");
+              if(ct) $persistentStore.write(ct.ip, "CF_IP_CT");
+              if(cu) $persistentStore.write(cu.ip, "CF_IP_CU");
+              if(v6) $persistentStore.write(v6.ip, "CF_IP_V6");
+              
+              let txt = "";
+              if(cm) txt += `📱 ${cm.ip}\n`;
+              if(ct) txt += `🌐 ${ct.ip}\n`;
+              if(cu) txt += `📶 ${cu.ip}\n`;
+              if(v6) txt += `🦕 ${v6.ip.substring(0,13)}..`;
+              
+              $done({title:"优选完成", content: txt, backgroundColor:"#34C759", icon:"checkmark"});
+          } catch(e) { $done({title:"错误", content: "解析失败", backgroundColor:"#FF3B30"}); }
+      });
+
+# ==================================
+# 2. 自动节点生成 (读取 & 生成)
+# ==================================
+proxy-providers:
+  CF-Auto-Nodes:
+    type: script
+    interval: 300
+    health-check: {enable: true, url: http://www.gstatic.com/generate_204, interval: 300}
+    # 👇 同样是一个能秒下载的假 URL
+    url: "https://fastly.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"
+    
+    # 👇 真正的节点生成代码
+    content: |
+      // 1. 读取数据
+      var def = "cf.zhetengsha.eu.org";
+      var cm = $persistentStore.read("CF_IP_CM") || def;
+      var ct = $persistentStore.read("CF_IP_CT") || def;
+      var cu = $persistentStore.read("CF_IP_CU") || def;
+      var v6 = $persistentStore.read("CF_IP_V6") || def;
+
+      // 2. 你的 VLESS 配置
+      var uuid = "87d1bfd4-574e-4c96-ad42-0426f27461ff";
+      var host = "_acme-challenge.2go.cloudns.be";
+      var path = "/?ed=2560";
+
+      // 3. 生成节点函数
+      function createProxy(name, ip) {
+          var finalIP = ip;
+          // IPv6 必须加 []
+          if (ip.indexOf(":") > -1 && ip.indexOf("[") === -1) finalIP = "[" + ip + "]";
+          
+          return {
+              "name": name,
+              "type": "vless",
+              "server": finalIP,
+              "port": 443,
+              "uuid": uuid,
+              "tls": true,
+              "skip-cert-verify": true,
+              "servername": host,
+              "network": "ws",
+              "ws-opts": { "path": path, "headers": { "Host": host } },
+              "udp": true
+          };
+      }
+
+      // 4. 输出 4 个节点
+      $done({
+          proxies: [
+              createProxy("📱 移动 | " + cm, cm),
+              createProxy("🌐 电信 | " + ct, ct),
+              createProxy("📶 联通 | " + cu, cu),
+              createProxy("🦕 IPv6 | " + v6, v6)
+          ]
+      });
+
+# ==================================
+# 3. 策略组
+# ==================================
+proxy-groups:
+  - name: "🚀 自动优选"
+    type: select
+    use:
+      - CF-Auto-Nodes
