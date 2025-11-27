@@ -1,5 +1,5 @@
-name: Cloudflare 优选 (加速版)
-desc: 使用国内加速链接，解决节点加载失败问题
+name: Cloudflare 优选 (Base64版)
+desc: 脚本内嵌于链接，无需网络下载，解决0节点问题
 
 # 1. 首页磁贴 (UI)
 tiles:
@@ -11,21 +11,22 @@ tiles:
 
 script-providers:
   CF-Best-IP:
-    # 这里的 cf.js 也加上加速，防止 UI 加载不出来
-    url: "https://mirror.ghproxy.com/https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf.js?v=ui_fast_01"
+    # 磁贴脚本依然用加速链接，这部分没问题
+    url: "https://mirror.ghproxy.com/https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf.js?v=ui_final"
     interval: 0
 
-# 2. 节点生成 (核心修复)
+# 2. 节点生成 (核心修改：使用 Data URI)
 proxy-providers:
   "CF-Provider":
     type: script
-    # ⚠️ 关键修改：使用了镜像加速链接，解决国内下载失败问题
-    url: "https://mirror.ghproxy.com/https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf-node.js?v=node_fast_01"
     interval: 300
     health-check:
       enable: true
       url: http://www.gstatic.com/generate_204
       interval: 300
+    # 👇 下面这行是关键！不要改动任何字符！
+    # 这串字符就是你的 cf-node.js 代码的 Base64 编码
+    url: "data:text/javascript;base64,dmFyIGlwPSRwZXJzaXN0ZW50U3RvcmUucmVhZCgiQ0ZfQkVTVF9JUCIpO2lmKCFpcHx8aXAubGVuZ3RoPDUpaXA9ImNmLnpoZXRlbmdzaGEuZXUub3JnIjskZG9uZSh7cHJveGllczpbe25hbWU6IvjklojIeaquWKqOS8mOmAieB8ICIraXAsdHlwZToidnxlc3MiLHNlcnZlcmlwLHBvcnQ6NDQzLHV1aWQ6Ijg3ZDFiZmQ0LTU3NGUtNGM5Ni1hZDQyLTA0MjZmMjc0NjFmZiIsdGxzOnRydWUsInNraXAtY2VydC12ZXJpZnkiOnRydWUsbmV0d29yazoid3MiLHNlcnZlcm5hbWU6Il9hY21lLWNoYWxsZW5nZS4yZ28uY2xvdWRucy5iZSIsIndzLW9wdHMiOntwYXRoOiIvP2VkIixoZWFkZXJzOntIb3N0OiJfYWNtZS1jaGFsbGVuZ2UuMmdvLmNsb3VkbnMuYmUifX0sdWRwOnRydWV9XX0pOw=="
 
 # 3. 策略组
 proxy-groups:
