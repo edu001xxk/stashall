@@ -1,8 +1,8 @@
-name: "Cloudflare 自动优选 (保底版)"
-desc: "强制生成节点，修复0节点问题"
+name: "Cloudflare 终极保底版"
+desc: "本地闭环运行，强制生成节点，无需下载"
 
 # ==================================
-# 1. 首页磁贴 (负责测速 + 写入)
+# 1. 首页磁贴 (点击测速)
 # ==================================
 tiles:
   - name: CF-Speedtest
@@ -14,8 +14,8 @@ tiles:
 script-providers:
   CF-Speedtest:
     interval: 0
-    # 使用 fastly CDN 作为握手链接，国内极速
-    url: "https://fastly.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"
+    # ✅ 绝杀 1：使用 Base64 伪装 URL，无需联网下载，永不报错
+    url: "data:text/javascript;base64,Ly8gUGxhY2Vob2xkZXI="
     
     content: |
       const url = "https://api.uouin.com/index.php/index/Cloudflare?key=123&time=" + Date.now();
@@ -28,9 +28,10 @@ script-providers:
           return v[0];
       }
 
-      $httpClient.get({url: url, timeout: 15000}, function(error, response, data) {
+      $httpClient.get({url: url, timeout: 5000}, function(error, response, data) {
+          // 即使失败也弹窗提示，方便调试
           if (error) { 
-              $done({title:"失败", content:"网络错误", backgroundColor:"#FF3B30"}); 
+              $done({title:"测速失败", content:"无法连接 API", backgroundColor:"#FF3B30", icon:"xmark"}); 
               return; 
           }
           try {
@@ -53,44 +54,46 @@ script-providers:
               
               $done({title:"优选完成", content: txt, backgroundColor:"#34C759", icon:"checkmark"});
           } catch(e) { 
-              $done({title:"错误", content: "解析失败", backgroundColor:"#FF3B30"}); 
+              $done({title:"数据错误", content: "解析异常", backgroundColor:"#FF3B30", icon:"exclamationmark"}); 
           }
       });
 
 # ==================================
-# 2. 节点生成 (读取 & 强制生成)
+# 2. 自动节点生成 (强制输出 4 个)
 # ==================================
 proxy-providers:
   CF-Auto-Nodes:
     type: script
     interval: 300
     health-check: {enable: true, url: http://www.gstatic.com/generate_204, interval: 300}
-    # 同样使用 fastly CDN 骗过校验
-    url: "https://fastly.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"
+    # ✅ 绝杀 2：同样使用本地协议 URL
+    url: "data:text/javascript;base64,Ly8gTm9kZSBHZW5lcmF0b3I="
     
     content: |
-      // 1. 定义保底默认值 (防止读取失败)
+      // 1. 定义保底默认值 (您的原始域名)
       var def = "cf.zhetengsha.eu.org";
       
-      // 2. 尝试读取，如果读不到就用默认值
+      // 2. 尝试读取 (读不到就用默认，保证有值)
       var cm = $persistentStore.read("CF_IP_CM");
       var ct = $persistentStore.read("CF_IP_CT");
       var cu = $persistentStore.read("CF_IP_CU");
       var v6 = $persistentStore.read("CF_IP_V6");
 
-      if(!cm) cm = def;
-      if(!ct) ct = def;
-      if(!cu) cu = def;
-      if(!v6) v6 = def;
+      // 强制兜底
+      if(!cm || cm.length < 7) cm = def;
+      if(!ct || ct.length < 7) ct = def;
+      if(!cu || cu.length < 7) cu = def;
+      if(!v6 || v6.length < 7) v6 = def;
 
-      // 3. 你的配置
+      // 3. 您的配置 (严谨对应您的 VLESS 格式)
       var uuid = "87d1bfd4-574e-4c96-ad42-0426f27461ff";
       var host = "_acme-challenge.2go.cloudns.be";
-      var path = "/?ed=2560";
+      var path = "/?ed=2560"; // 路径已改为您的要求
 
       // 4. 生成函数
       function createProxy(name, ip) {
           var finalIP = ip;
+          // IPv6 必须加 []
           if (ip.indexOf(":") > -1 && ip.indexOf("[") === -1) finalIP = "[" + ip + "]";
           
           return {
@@ -103,12 +106,15 @@ proxy-providers:
               "skip-cert-verify": true,
               "servername": host,
               "network": "ws",
-              "ws-opts": { "path": path, "headers": { "Host": host } },
+              "ws-opts": { 
+                  "path": path, 
+                  "headers": { "Host": host } 
+              },
               "udp": true
           };
       }
 
-      // 5. 强制输出 4 个节点
+      // 5. 强制输出 4 个节点 (无论如何都会执行到这里)
       $done({
           proxies: [
               createProxy("📱 移动 | " + cm, cm),
