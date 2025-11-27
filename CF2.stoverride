@@ -1,9 +1,9 @@
-name: Cloudflare 优选套件
-desc: 磁贴测速 + 自动生成策略组
+name: Cloudflare 自动优选 (内嵌版)
+desc: 脚本直接内置，解决下载失败问题
 
-# ================================
-# 1. 首页磁贴 (UI 显示)
-# ================================
+# ==================================
+# 1. 首页磁贴 (UI)
+# ==================================
 tiles:
   - name: CF-Best-IP
     title: Cloudflare 优选
@@ -11,30 +11,58 @@ tiles:
     icon: network
     collapsed: false
 
+# 这里的 cf.js 依然保留远程，因为它是UI交互，不像节点生成那么敏感
 script-providers:
   CF-Best-IP:
-    # 🔗 这里的 cf.js 我根据你的路径自动补全了
-    # 为了防止缓存，我在后面加了 ?v=new1
-    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf.js?v=new1"
+    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf.js?v=ui_final"
     interval: 0
 
-# ================================
-# 2. 自动节点 (Proxy 生成)
-# ================================
+# ==================================
+# 2. 节点生成 (核心修改：直接内嵌代码)
+# ==================================
 proxy-providers:
   "CF-Provider":
     type: script
-    # 🔗 这里填入了你刚才给我的 cf-node.js 链接
-    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf-node.js?v=new6"
     interval: 300
     health-check:
       enable: true
       url: http://www.gstatic.com/generate_204
       interval: 300
+    # ⚠️ 关键点：这里不填 url，直接填 content
+    # Stash 会直接运行这段代码，无需联网下载 js
+    content: |
+      // 1. 尝试读取优选 IP
+      var savedIP = $persistentStore.read("CF_BEST_IP");
+      var address = "cf.zhetengsha.eu.org"; // 默认保底
 
-# ================================
-# 3. 策略组 (Group)
-# ================================
+      // 简单的格式校验
+      if (savedIP && savedIP.length > 5 && savedIP.indexOf(".") > -1) {
+          address = savedIP;
+      }
+
+      // 2. 输出节点 (使用你提供的 VLESS 格式)
+      $done({
+        proxies: [{
+          "name": "🚀 自动优选 | " + address,
+          "type": "vless",
+          "server": address,
+          "port": 443,
+          "uuid": "87d1bfd4-574e-4c96-ad42-0426f27461ff",
+          "tls": true,
+          "skip-cert-verify": true,
+          "network": "ws",
+          "servername": "_acme-challenge.2go.cloudns.be",
+          "ws-opts": {
+            "path": "/?ed",
+            "headers": { "Host": "_acme-challenge.2go.cloudns.be" }
+          },
+          "udp": true
+        }]
+      });
+
+# ==================================
+# 3. 策略组 (让它显示在列表里)
+# ==================================
 proxy-groups:
   - name: "🚀 自动优选"
     type: select
