@@ -1,7 +1,9 @@
-name: Cloudflare 优选 (Base64版)
-desc: 脚本内嵌于链接，无需网络下载，解决0节点问题
+name: Cloudflare 终极修复版
+desc: 强制显示磁贴 + 强制生成节点 (内嵌代码模式)
 
-# 1. 首页磁贴 (UI)
+# ================================
+# 1. 强制显示首页磁贴
+# ================================
 tiles:
   - name: CF-Best-IP
     title: Cloudflare 优选
@@ -11,6 +13,50 @@ tiles:
 
 script-providers:
   CF-Best-IP:
-    # 磁贴脚本依然用加速链接，这部分没问题
-    url: "https://mirror.ghproxy.com/https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf.js?v=ui_final"
+    # 磁贴的测速脚本 (UI)
+    url: "https://mirror.ghproxy.com/https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf.js?v=final_ui_fix_02"
     interval: 0
+
+# ================================
+# 2. 强制生成节点 (CF-Auto)
+# ================================
+proxy-providers:
+  CF-Auto:
+    type: script
+    interval: 300
+    health-check:
+      enable: true
+      url: http://www.gstatic.com/generate_204
+      interval: 300
+    # 👇 这里加一个真实的 URL 防止 Stash 报错，但实际运行的是下面的 content
+    url: "https://mirror.ghproxy.com/https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/cf-node.js?v=dummy"
+    
+    # 👇 核心：内嵌节点生成代码 (无需下载)
+    content: |
+      var savedIP = $persistentStore.read("CF_BEST_IP");
+      var address = "cf.zhetengsha.eu.org"; // 默认保底
+
+      // 校验 IP 格式
+      if (savedIP && savedIP.length > 5 && savedIP.indexOf(".") > -1) {
+          address = savedIP;
+      }
+
+      // 输出 VLESS 节点
+      $done({
+        proxies: [{
+          "name": "🚀 自动优选 | " + address,
+          "type": "vless",
+          "server": address,
+          "port": 443,
+          "uuid": "87d1bfd4-574e-4c96-ad42-0426f27461ff",
+          "tls": true,
+          "skip-cert-verify": true,
+          "network": "ws",
+          "servername": "_acme-challenge.2go.cloudns.be",
+          "ws-opts": {
+            "path": "/?ed",
+            "headers": { "Host": "_acme-challenge.2go.cloudns.be" }
+          },
+          "udp": true
+        }]
+      });
