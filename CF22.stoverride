@@ -1,0 +1,35 @@
+name: Cloudflare 优选套件 (GitHub版)
+desc: 包含磁贴测速 + 4节点自动生成
+
+# 1. 首页磁贴
+tiles:
+  - name: CF-Best-IP
+    title: Cloudflare 优选
+    content: 点击运行测速
+    icon: network
+    collapsed: false
+
+script-providers:
+  CF-Best-IP:
+    # 🔗 使用 jsDelivr 加速下载 cf.js
+    url: "https://fastly.jsdelivr.net/gh/edu001xxk/stashall@main/cf4.js"
+    interval: 0
+
+# 2. 自动节点生成
+proxy-providers:
+  CF-Auto-Nodes:
+    type: script
+    interval: 300
+    health-check:
+      enable: true
+      url: http://www.gstatic.com/generate_204
+      interval: 300
+    # 🔗 使用 jsDelivr 加速下载 cf-node.js
+    url: "https://fastly.jsdelivr.net/gh/edu001xxk/stashall@main/cf-node.js"
+
+# 3. 策略组
+proxy-groups:
+  - name: "🚀 自动优选"
+    type: select
+    use:
+      - CF-Auto-Nodes
