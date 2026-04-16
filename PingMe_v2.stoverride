@@ -8,7 +8,7 @@ tiles:
   - name: PingMe-Tile
     title: PingMe 签到
     content: 点击运行签到或等待定时触发
-    icon: https://img.327333.xyz/file/1776344777405_IMG_7573.jpeg # 可以用系统图标，也可以换成 PingMe 的 URL 图标
+    icon: "https://img.327333.xyz/file/1776344777405_IMG_7573.jpeg" # 可以用系统图标，也可以换成 PingMe 的 URL 图标
     backgroundColor: "#FF9500" # 默认给个橙色，脚本执行成功后会变成绿色
     collapsed: false
 
@@ -26,9 +26,9 @@ script-providers:
 # ================================
 cron:
   script:
-    # 每天 8:30 和 20:30 后台自动跑一遍
+    # 每3小时一次
     - name: PingMe-Tile
-      cronexp: "0 30 8,20 * * *"
+      cronexp: "0 0 */3 * * *"
       timeout: 60
 
 http:
