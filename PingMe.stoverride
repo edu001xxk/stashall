@@ -28,7 +28,7 @@ cron:
   script:
     # 每天 8:30 和 20:30 后台自动跑一遍
     - name: PingMe-Tile
-      cronexp: "30 8,20 * * *"
+      cronexp: "0 30 8,20 * * *"
       timeout: 60
 
 http:
