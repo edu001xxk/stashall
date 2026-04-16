@@ -1,25 +1,6 @@
 // 2026/04/16
 /*
-@Name：PingMe 自动化签到+视频奖励 (Stash 优化版)
-@Author：怎么肥事 (Converted for Stash)
-
-===================
-【Stash 配置说明】
-===================
-1. 将此脚本放入 Stash 的脚本库中
-2. 添加 MITM: api.pingmeapp.net
-3. 在配置文件中添加以下规则:
-
-[Script]
-# 获取 Token (通过打开 App 触发)
-PingMe_GetToken = type=http-request, pattern=^https:\/\/api\.pingmeapp\.net\/app\/queryBalanceAndBonus, requires-body=true, max-size=0, script-path=PingMe_Stash.js
-
-# 定时任务 / 面板 (每天 8:30 和 20:30 执行)
-# 注意：由于视频奖励带有延迟，timeout 必须设置大于 50 秒
-PingMe_Task = type=cron, cronexp="30 8,20 * * *", timeout=60, wake-system=1, script-path=PingMe_Stash.js
-
-[MITM]
-hostname = api.pingmeapp.net
+@Name：PingMe 自动化签到+视频奖励 (Stash async 重构版)
 */
 
 const scriptName = 'PingMe';
@@ -108,12 +89,6 @@ function getUTCSignDate() {
   return `${now.getUTCFullYear()}-${pad(now.getUTCMonth()+1)}-${pad(now.getUTCDate())} ${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())}`;
 }
 
-function normalizeHeaderNameMap(headers) {
-  const out = {};
-  Object.keys(headers || {}).forEach(k => out[k] = headers[k]);
-  return out;
-}
-
 function parseRawQuery(url) {
   const query = (url.split('?')[1] || '').split('#')[0];
   const rawMap = {};
@@ -121,17 +96,15 @@ function parseRawQuery(url) {
     if (!pair) return;
     const idx = pair.indexOf('=');
     if (idx < 0) return;
-    const k = pair.slice(0, idx);
-    const v = pair.slice(idx + 1);
-    rawMap[k] = v;
+    rawMap[pair.slice(0, idx)] = pair.slice(idx + 1);
   });
   return rawMap;
 }
 
-function buildSignedParamsRaw(capture) {
+function buildSignedParamsRaw(captureObj) {
   const params = {};
-  Object.keys(capture.paramsRaw || {}).forEach(k => {
-    if (k !== 'sign' && k !== 'signDate') params[k] = capture.paramsRaw[k];
+  Object.keys(captureObj.paramsRaw || {}).forEach(k => {
+    if (k !== 'sign' && k !== 'signDate') params[k] = captureObj.paramsRaw[k];
   });
   params.signDate = getUTCSignDate();
   const signBase = Object.keys(params).sort().map(k => `${k}=${params[k]}`).join('&');
@@ -139,20 +112,15 @@ function buildSignedParamsRaw(capture) {
   return params;
 }
 
-function buildUrl(path, capture) {
-  const params = buildSignedParamsRaw(capture);
+function buildUrl(path, captureObj) {
+  const params = buildSignedParamsRaw(captureObj);
   const qs = Object.keys(params).map(k => `${k}=${encodeURIComponent(params[k])}`).join('&');
   return `https://api.pingmeapp.net/app/${path}?${qs}`;
 }
 
-function cloneHeaders(headers) {
-  const out = {};
-  Object.keys(headers || {}).forEach(k => out[k] = headers[k]);
-  return out;
-}
-
-function buildHeaders(capture) {
-  const headers = cloneHeaders(capture.headers || {});
+function buildHeaders(captureObj) {
+  const headers = {};
+  Object.keys(captureObj.headers || {}).forEach(k => headers[k] = captureObj.headers[k]);
   delete headers['Content-Length']; delete headers['content-length'];
   delete headers[':authority']; delete headers[':method']; delete headers[':path']; delete headers[':scheme'];
   headers['Host'] = 'api.pingmeapp.net';
@@ -160,181 +128,145 @@ function buildHeaders(capture) {
   return headers;
 }
 
-// ================= 2. 核心执行逻辑 =================
-if (typeof $request !== 'undefined' && $request) {
-  // --- 抓包模式 ---
-  const capture = {
-    url: $request.url,
-    paramsRaw: parseRawQuery($request.url),
-    headers: normalizeHeaderNameMap($request.headers || {})
-  };
-  $persistentStore.write(JSON.stringify(capture), ckKey);
-  
-  if (typeof $notification !== 'undefined') {
-      $notification.post(scriptName, "✅ 参数抓取成功", "已保存请求头+参数\n请前往日志查看详情");
-  }
-  console.log(`【${scriptName}】抓取成功:\n${JSON.stringify(capture, null, 2)}`);
-  $done({});
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-} else {
-  // --- 任务运行 / 面板模式 ---
-  const raw = $persistentStore.read(ckKey);
-  
-  if (!raw) {
-    if (typeof $notification !== 'undefined') $notification.post(scriptName, '⚠️ 未抓到参数', '先打开 PingMe 触发一次');
-    $done({ 
-        title: "PingMe 签到", 
-        content: "⚠️ 暂无数据，请打开 App 抓取", 
-        icon: "exclamationmark.triangle", 
-        backgroundColor: "#FF9500" 
-    });
-  } else {
-    let capture;
-    try { 
-        capture = JSON.parse(raw); 
-    } catch (e) {
-        if (typeof $notification !== 'undefined') $notification.post(scriptName, '⚠️ 参数损坏', '请重新打开 PingMe 抓参');
-        $done({ 
-            title: "PingMe 签到", 
-            content: "⚠️ 参数损坏，请重新抓取", 
-            icon: "xmark.octagon", 
-            backgroundColor: "#FF3B30" 
-        });
+// ================= 2. 核心异步执行逻辑 =================
+(async function() {
+    // [模式A] 抓包模式：如果是通过请求进来的
+    if (typeof $request !== 'undefined' && $request && $request.url) {
+        let reqCapture = {
+            url: $request.url,
+            paramsRaw: parseRawQuery($request.url),
+            headers: $request.headers || {}
+        };
+        $persistentStore.write(JSON.stringify(reqCapture), ckKey);
+        
+        if (typeof $notification !== 'undefined') {
+            $notification.post(scriptName, "✅ 参数抓取成功", "已保存请求头+参数\n请前往首页运行磁贴");
+        }
+        console.log(`【${scriptName}】抓取成功:\n${JSON.stringify(reqCapture, null, 2)}`);
+        $done({});
+        return;
     }
 
-    const headers = buildHeaders(capture);
-    const msgs = [];
-    
-    // 面板数据暂存
+    // [模式B] 任务模式：磁贴点击或 Cron 触发
+    let raw = $persistentStore.read(ckKey);
+    if (!raw) {
+        $done({ title: "PingMe 签到", content: "⚠️ 暂无数据，请打开App抓取", icon: "exclamationmark.triangle", backgroundColor: "#FF9500" });
+        return;
+    }
+
+    let captureObj;
+    try { 
+        captureObj = JSON.parse(raw); 
+    } catch (e) {
+        $done({ title: "PingMe 签到", content: "⚠️ 参数损坏，请重新抓取", icon: "xmark.octagon", backgroundColor: "#FF3B30" });
+        return;
+    }
+
+    let headers = buildHeaders(captureObj);
+    let msgs = [];
     let finalBalance = "?";
     let checkInStatus = "获取中";
     let videoEarned = 0;
 
-    // Stash 网络请求 Promise 封装
+    // 网络请求封装器
     function fetchApi(path) {
-      return new Promise((resolve, reject) => {
-        $httpClient.get({
-            url: buildUrl(path, capture),
-            headers: headers
-        }, (error, response, data) => {
-            if (error) reject({ error });
-            else resolve({ status: response.status, body: data });
-        });
-      });
-    }
-
-    // 视频循环队列
-    function doVideoLoop(count) {
-      let i = 0;
-      function next() {
-        if (i >= count) return Promise.resolve();
-        return new Promise(resolve => {
-          setTimeout(() => {
-            i++;
-            fetchApi('videoBonus').then(res => {
-              try {
-                const d = JSON.parse(res.body);
-                if (d.retcode === 0) {
-                  msgs.push(`🎬 视频${i}：+${d.result?.bonus || '?'} Coins`);
-                  videoEarned++;
-                  resolve(next());
-                } else {
-                  msgs.push(`⏸ 视频${i}：${d.retmsg}`);
-                  resolve();
-                }
-              } catch (e) {
-                msgs.push(`❌ 视频${i}：解析失败`);
-                resolve();
-              }
-            }).catch(err => {
-              msgs.push(`❌ 视频${i}：${err.error || '请求失败'}`);
-              resolve();
+        return new Promise((resolve, reject) => {
+            $httpClient.get({
+                url: buildUrl(path, captureObj),
+                headers: headers
+            }, (error, response, data) => {
+                if (error) reject(error);
+                else resolve(data);
             });
-          }, i === 0 ? 1500 : VIDEO_DELAY);
         });
-      }
-      return next();
     }
 
-    // --- Promise 流程链 ---
-    fetchApi('queryBalanceAndBonus').then(res => {
-      try {
-        const d = JSON.parse(res.body);
-        if (d.retcode === 0) {
-            msgs.push(`💰 初始余额：${d.result.balance} Coins`);
-        } else {
-            msgs.push(`⚠️ 查询：${d.retmsg}`);
-        }
-      } catch (e) {
-        msgs.push('❌ 查询：解析失败');
-      }
-      return fetchApi('checkIn');
-    }).then(res => {
-      try {
-        const d = JSON.parse(res.body);
-        if (d.retcode === 0) {
-            let hint = (d.result?.bonusHint || d.retmsg || '').replace(/\n/g, ' ');
+    // ==== 核心业务流水线 ====
+    try {
+        // 1. 查询初始余额
+        let res1 = await fetchApi('queryBalanceAndBonus');
+        let d1 = JSON.parse(res1);
+        if (d1.retcode === 0) msgs.push(`💰 初始：${d1.result.balance} Coins`);
+        else msgs.push(`⚠️ 查询：${d1.retmsg}`);
+
+        // 2. 每日签到
+        let res2 = await fetchApi('checkIn');
+        let d2 = JSON.parse(res2);
+        if (d2.retcode === 0) {
+            let hint = (d2.result?.bonusHint || d2.retmsg || '').replace(/\n/g, ' ');
             msgs.push(`✅ 签到：${hint}`);
             checkInStatus = "成功";
         } else {
-            msgs.push(`⚠️ 签到：${d.retmsg}`);
+            msgs.push(`⚠️ 签到：${d2.retmsg}`);
             checkInStatus = "重复或失败";
         }
-      } catch (e) {
-        msgs.push('❌ 签到：解析失败');
-        checkInStatus = "异常";
-      }
-      return doVideoLoop(MAX_VIDEO);
-    }).then(() => {
-      return fetchApi('queryBalanceAndBonus');
-    }).then(res => {
-      try {
-        const d = JSON.parse(res.body);
-        if (d.retcode === 0) {
-            finalBalance = d.result.balance;
-            msgs.push(`💰 最新余额：${d.result.balance} Coins`);
+
+        // 3. 循环看视频任务
+        for (let i = 1; i <= MAX_VIDEO; i++) {
+            await sleep(i === 1 ? 1500 : VIDEO_DELAY); // 第一个等短点，后续严格遵守延迟
+            try {
+                let vRes = await fetchApi('videoBonus');
+                let vD = JSON.parse(vRes);
+                if (vD.retcode === 0) {
+                    msgs.push(`🎬 视频${i}：+${vD.result?.bonus || '?'} Coins`);
+                    videoEarned++;
+                } else {
+                    msgs.push(`⏸ 视频${i}：${vD.retmsg}`);
+                    // 遇到上限提前退出循环
+                    break;
+                }
+            } catch (err) {
+                msgs.push(`❌ 视频${i}：请求异常`);
+            }
         }
-      } catch (e) {}
 
-      // ========== 格式化输出 (参考 cf.js) ==========
-      
-      // 1. 日志格式化打印
-      let logText = `======== PingMe 签到结果 ========\n\n`;
-      logText += msgs.join("\n");
-      logText += `\n\n=================================`;
-      console.log(logText);
-      
-      // 2. 弹窗通知
-      if (typeof $notification !== 'undefined') {
-          $notification.post(`${scriptName} 🎉 完成`, `余额: ${finalBalance} Coins`, msgs.join('\n'));
-      }
+        // 4. 查询最新余额
+        let res3 = await fetchApi('queryBalanceAndBonus');
+        let d3 = JSON.parse(res3);
+        if (d3.retcode === 0) {
+            finalBalance = d3.result.balance;
+            msgs.push(`💰 最新：${d3.result.balance} Coins`);
+        }
 
-      // 3. 磁贴美化 (极致压缩显示核心内容)
-      let tileText = `签到: ${checkInStatus}\n`;
-      if(videoEarned > 0) tileText += `视频: ${videoEarned}次奖励\n`;
-      tileText += `余额: ${finalBalance}`;
+        // 5. 格式化输出 (给面板与日志使用)
+        let logText = `======== PingMe 签到结果 ========\n${msgs.join("\n")}\n=================================`;
+        console.log(logText);
 
-      $done({
-          title: "PingMe", 
-          content: tileText.trim(),
-          icon: "gift.fill",
-          backgroundColor: "#34C759" // 成功绿
-      });
+        if (typeof $notification !== 'undefined') {
+            $notification.post(`${scriptName} 🎉 运行结束`, `余额: ${finalBalance} Coins`, msgs.join('\n'));
+        }
 
-    }).catch(err => {
-      let errMsg = msgs.join('\n') + '\n' + (err.error || String(err));
-      console.log(`${scriptName} 失败:\n` + errMsg);
-      
-      if (typeof $notification !== 'undefined') {
-          $notification.post(`${scriptName} ❌ 失败`, "", errMsg);
-      }
-      
-      $done({ 
-          title: "PingMe", 
-          content: "任务执行异常", 
-          icon: "xmark.octagon", 
-          backgroundColor: "#FF3B30" // 错误红
-      });
-    });
-  }
-}
+        let tileText = `签到: ${checkInStatus}\n`;
+        if(videoEarned > 0) tileText += `视频: ${videoEarned}次奖励\n`;
+        tileText += `余额: ${finalBalance}`;
+
+        // 完美结束，涂抹绿色！
+        $done({
+            title: "PingMe 签到", 
+            content: tileText.trim(),
+            icon: "gift.fill",
+            backgroundColor: "#34C759" 
+        });
+
+    } catch (fatalError) {
+        // 全局致命错误捕获
+        let errMsg = "执行发生异常: " + String(fatalError);
+        console.log(`${scriptName} ❌ 崩溃:\n` + errMsg);
+        
+        if (typeof $notification !== 'undefined') {
+            $notification.post(`${scriptName} ❌ 失败`, "", errMsg);
+        }
+        
+        // 异常结束，涂抹红色！
+        $done({ 
+            title: "PingMe 签到", 
+            content: "网络连接超时或中断", 
+            icon: "xmark.octagon", 
+            backgroundColor: "#FF3B30" 
+        });
+    }
+})();
