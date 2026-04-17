@@ -28,7 +28,7 @@ cron:
   script:
     # 每3小时一次
     - name: PingMe-Tile
-      cronexp: "0 */3 * * *"
+      cron: "0 */3 * * *"
       timeout: 60
 
 http:
