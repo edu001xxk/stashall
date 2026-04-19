@@ -18,11 +18,12 @@ if (match && match[1]) {
     $httpClient.get({
         url: jableUrl,
         headers: {
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
         }
     }, function(error, response, data) {
         let foundM3u8 = false;
 
+        // 如果 Jable 访问成功，尝试提取
         if (!error && response.status === 200) {
             let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
             let m3u8Match = data.match(m3u8Reg);
@@ -33,86 +34,44 @@ if (match && match[1]) {
             }
         }
         
-        // 3. Jable 没找到，转去 MissAV
+        // 3. 备用方案：如果 Jable 没找到或请求失败，转而搜索 MissAV
         if (!foundM3u8) {
-            console.log(`[JavDB-SenPlayer] Jable 未找到，切换至 MissAV...`);
-            // 使用最新域名 missav.ai，并传入初始跳转计数器 0
-            let missavUrl = `https://missav.ai/cn/${code}`;
-            fetchMissAV(missavUrl, code, 0);
+            console.log(`[JavDB-SenPlayer] Jable 未找到，自动切换至 MissAV 搜索...`);
+            let missavUrl = `https://missav.com/en/${code}`;
+            
+            $httpClient.get({
+                url: missavUrl,
+                headers: {
+                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+                }
+            }, function(mError, mResponse, mData) {
+                if (!mError && (mResponse.status === 200 || mResponse.status === 301 || mResponse.status === 302)) {
+                    // MissAV 的链接通常被斜杠转义，先去除转义符，再进行匹配
+                    let unescapedData = mData.replace(/\\/g, "");
+                    let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
+                    let m3u8Match = unescapedData.match(m3u8Reg);
+
+                    if (m3u8Match) {
+                        handleSuccess(code, m3u8Match[0], "MissAV");
+                    } else {
+                        console.log(`[JavDB-SenPlayer] 😭 抱歉，Jable 和 MissAV 均未找到该影片资源`);
+                        $done({ body });
+                    }
+                } else {
+                    console.log(`[JavDB-SenPlayer] MissAV 请求失败`);
+                    $done({ body });
+                }
+            });
         }
     });
 } else {
+    // 没找到番号，直接放行
     $done({ body });
 }
 
-// ==========================================
-// 独立封装 MissAV 的请求函数，支持自动跟随重定向
-// ==========================================
-function fetchMissAV(url, code, redirectCount) {
-    // 防止陷入死循环，最多允许跳 3 次域名
-    if (redirectCount > 3) {
-        console.log(`[JavDB-SenPlayer] MissAV 重定向次数过多，已停止请求`);
-        $done({ body });
-        return;
-    }
-    
-    console.log(`[JavDB-SenPlayer] 正在请求 MissAV: ${url}`);
-    
-    $httpClient.get({
-        url: url,
-        headers: {
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
-        }
-    }, function(err, resp, data) {
-        if (err) {
-            console.log(`[JavDB-SenPlayer] MissAV 请求报错: ${err}`);
-            $done({ body });
-            return;
-        }
-        
-        console.log(`[JavDB-SenPlayer] MissAV 返回状态码: ${resp.status}`);
-        
-        // 【核心修复】处理 301/302 重定向
-        if (resp.status === 301 || resp.status === 302 || resp.status === 308) {
-            let location = resp.headers['Location'] || resp.headers['location'];
-            if (location) {
-                // 如果返回的是相对路径，手动拼上域名
-                if (location.startsWith('/')) {
-                    let domain = url.match(/^https?:\/\/[^\/]+/)[0];
-                    location = domain + location;
-                }
-                console.log(`[JavDB-SenPlayer] 发现重定向，自动跟随至: ${location}`);
-                // 递归发起新请求
-                fetchMissAV(location, code, redirectCount + 1);
-            } else {
-                $done({ body });
-            }
-            return;
-        }
-        
-        // 处理 200 成功响应
-        if (resp.status === 200) {
-            let unescapedData = data.replace(/\\/g, "");
-            let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
-            let m3u8Match = unescapedData.match(m3u8Reg);
-
-            if (m3u8Match) {
-                handleSuccess(code, m3u8Match[0], "MissAV");
-            } else {
-                console.log(`[JavDB-SenPlayer] 😭 抱歉，MissAV 页面内未提取到 m3u8 链接`);
-                $done({ body });
-            }
-        } else {
-            $done({ body });
-        }
-    });
-}
-
-// ==========================================
-// 提取成功后的统一处理函数 (发送通知 + 打印日志)
-// ==========================================
+// 提取成功后的统一处理函数（打印日志 + 发送通知）
 function handleSuccess(code, m3u8, source) {
-    // 华丽地打印到 Stash 日志中，方便复制
+    // 【新增】将 m3u8 链接高亮打印到 Stash 日志中
     console.log(`\n==================================`);
     console.log(`🎯 [成功获取 M3U8] 数据源: ${source}`);
     console.log(`🔗 播放链接: ${m3u8}`);
@@ -130,5 +89,6 @@ function handleSuccess(code, m3u8, source) {
         $notification.post(title, subtitle, content, shortcutUrl);
     }
     
+    // 释放请求，让 App 继续加载
     $done({ body });
 }
