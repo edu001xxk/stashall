@@ -3,14 +3,6 @@ name: |-
 desc: |-
   Tab栏显示Shadowrocket，代表网页变身成功，即可一键添加模块
 
-force-http-engine:
-  - "script.hub"
-  - "*.script.hub"
-
-rules:
-# > 阻断 QUIC 强制走 TCP 从而确保 MitM 和重写生效
-  - AND,((DOMAIN-SUFFIX,ddgksf2013.top),(NETWORK,udp),(DST-PORT,443)),REJECT-NO-DROP
-
 http:
 
   mitm:
