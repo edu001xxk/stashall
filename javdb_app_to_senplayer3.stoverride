@@ -1,21 +1,21 @@
 name: "JavDB App to SenPlayer"
-desc: "适配第三方 JavDB App 的 API 接口"
+desc: "适配第三方 JavDB App (域名: tp.cmastd.com)"
+tag: "自动化"
+
+# MITM 必须在最顶层，域名建议加上双引号
+mitm:
+  host:
+    - "tp.cmastd.com"
 
 script-providers:
   javdb_app_to_senplayer:
-    # 确保此 URL 指向你更新后的 JS 脚本文件
-    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer3.js
+    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer3.js"
     interval: 86400
 
 http:
   script:
-    # 匹配新的 API 接口域名
-    - match: ^https?:\/\/api\.liquidlink\.cn\/
-      name: javdb_app_to_senplayer
-      type: response
+    - match: "^https?:\\/\\/tp\\.cmastd\\.com\\/"
+      name: "javdb_app_to_senplayer"
+      type: "response"
       require-body: true
       timeout: 10
-
-mitm:
-  host:
-    - tp.cmastd.com
