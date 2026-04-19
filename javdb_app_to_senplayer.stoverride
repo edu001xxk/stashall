@@ -8,7 +8,7 @@ mitm:
 script-providers:
   javdb_app_to_senplayer:
     # 注意这里加了 v=7 强制刷新你 GitHub 的缓存
-    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js?v=7"
+    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js?v=2"
     interval: 86400
 
 http:
