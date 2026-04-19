@@ -1,6 +1,5 @@
 /*
- * JavDB App 自动解析并拉起 SenPlayer
- * 逻辑：拦截 API -> 提取番号 -> 搜索 Jable/MissAV -> 推送带 Scheme 的通知
+ * JavDB App 自动解析并拉起 SenPlayer (修正版)
  */
 
 let body = $response.body;
@@ -9,7 +8,7 @@ if (!body) {
     $done({});
 }
 
-// 1. 匹配标准番号 (如 ABC-123)
+// 1. 匹配标准番号
 let idReg = /([a-zA-Z]{2,6}-\d{3,5})/i;
 let match = body.match(idReg);
 
@@ -35,9 +34,8 @@ if (match && match[1]) {
             }
         }
         
-        // 3. 备用方案：Jable没找到，转而搜索 MissAV
         if (!foundM3u8) {
-            console.log(`[JavDB-SenPlayer] ⚠️ Jable 未找到或被拦截，转去 MissAV...`);
+            console.log(`[JavDB-SenPlayer] ⚠️ Jable 未找到，尝试 MissAV...`);
             fetchMissAV(`https://missav.ai/cn/${code}`, code, 0);
         }
     });
@@ -45,12 +43,8 @@ if (match && match[1]) {
     $done({ body });
 }
 
-// ==========================================
-// 核心：处理 MissAV 请求与 CF 盾诊断
-// ==========================================
 function fetchMissAV(url, code, redirectCount) {
     if (redirectCount > 3) {
-        console.log(`[JavDB-SenPlayer] ❌ MissAV 重定向次数过多，已停止请求`);
         $done({ body });
         return;
     }
@@ -59,20 +53,11 @@ function fetchMissAV(url, code, redirectCount) {
         url: url,
         headers: getFakeHeaders()
     }, function(err, resp, data) {
-        if (err) {
-            console.log(`[JavDB-SenPlayer] ❌ MissAV 网络请求直接报错: ${err}`);
+        if (err || resp.status === 403 || resp.status === 503) {
             $done({ body });
             return;
         }
         
-        // 【CF 盾检测】
-        if (resp.status === 403 || resp.status === 503) {
-            console.log(`[JavDB-SenPlayer] 🛡️ 遭遇 CF 盾拦截！状态码: ${resp.status}`);
-            $done({ body });
-            return;
-        }
-        
-        // 处理重定向
         if (resp.status === 301 || resp.status === 302 || resp.status === 308) {
             let location = resp.headers['Location'] || resp.headers['location'];
             if (location) {
@@ -94,12 +79,10 @@ function fetchMissAV(url, code, redirectCount) {
 
             if (m3u8Match) {
                 handleSuccess(code, m3u8Match[0], "MissAV");
+            } else if (redirectCount === 0) {
+                fetchMissAV(`https://missav.ai/cn/search/${code}`, code, 1);
             } else {
-                if (redirectCount === 0) {
-                    fetchMissAV(`https://missav.ai/cn/search/${code}`, code, 1);
-                } else {
-                    $done({ body });
-                }
+                $done({ body });
             }
         } else {
             $done({ body });
@@ -110,26 +93,29 @@ function fetchMissAV(url, code, redirectCount) {
 function getFakeHeaders() {
     return {
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "zh-CN,zh-Hans;q=0.9"
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     };
 }
 
 // ==========================================
-// 提取成功后的处理函数 (修改：直接拉起 SenPlayer)
+// 提取成功处理：修正跳转逻辑
 // ==========================================
 function handleSuccess(code, m3u8, source) {
-    console.log(`\n🎯 [成功获取 M3U8] 数据源: ${source}`);
+    // 修正：使用全小写 scheme，这是 iOS App 的标准写法
+    let senPlayerUrl = `senplayer://x-callback-url/play?url=${encodeURIComponent(m3u8)}`;
     
-    // 生成 SenPlayer 的 URL Scheme 播放链接
-    let senPlayerUrl = `SenPlayer://x-callback-url/play?url=${encodeURIComponent(m3u8)}`;
+    console.log(`[JavDB-SenPlayer] 🎯 最终生成的跳转链接: ${senPlayerUrl}`);
     
     let title = `▶ 解析成功 (${source}): ${code.toUpperCase()}`;
-    let subtitle = `找到流媒体链接，点击立即播放`;
-    let content = `视频源: ${source}\n点击此通知自动拉起 SenPlayer`;
+    let subtitle = `找到播放源，点击立即跳转播放`;
+    let content = `点击此通知唤起 SenPlayer`;
 
-    // Stash 发送通知并挂载跳转 URL
-    $notification.post(title, subtitle, content, { url: senPlayerUrl });
+    // 修正：Stash 环境下确保通知参数正确
+    // 同时传入 url 和 open-url 以确保 100% 跳转成功
+    $notification.post(title, subtitle, content, { 
+        "url": senPlayerUrl,
+        "open-url": senPlayerUrl 
+    });
 
     $done({ body });
 }
