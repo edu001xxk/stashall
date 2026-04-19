@@ -32,6 +32,10 @@ cron:
       timeout: 60
 
 http:
+
+  mitm:
+  - "api.pingmeapp.net"
+
   script:
     # 用于抓取 Token 参数
     - match: ^https:\/\/api\.pingmeapp\.net\/app\/queryBalanceAndBonus
@@ -40,5 +44,4 @@ http:
       require-body: true
       timeout: 10
 
-mitm:
-  - "api.pingmeapp.net"
+
