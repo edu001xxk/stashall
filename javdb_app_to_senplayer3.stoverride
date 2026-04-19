@@ -4,7 +4,7 @@ desc: "适配第三方 JavDB App 的 API 接口"
 script-providers:
   javdb_app_to_senplayer:
     # 确保此 URL 指向你更新后的 JS 脚本文件
-    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer2.js
+    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer3.js
     interval: 86400
 
 http:
