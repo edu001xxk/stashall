@@ -4,13 +4,12 @@ if (!body) {
     $done({});
 }
 
-// 1. 直接在 JSON 数据中暴力匹配标准番号
+// 1. 匹配标准番号
 let idReg = /([a-zA-Z]{2,6}-\d{3,5})/i;
 let match = body.match(idReg);
 
 if (match && match[1]) {
     let code = match[1].toLowerCase();
-    console.log(`[JavDB-SenPlayer] 成功抓取到番号: ${code}`);
 
     let jableUrl = `https://jable.tv/videos/${code}/`;
 
@@ -23,31 +22,25 @@ if (match && match[1]) {
     }, function(error, response, data) {
         if (!error && response.status === 200) {
             
-            // 3. 正则提取网页底层的 m3u8 串流链接
+            // 3. 正则提取 m3u8
             let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/;
             let m3u8Match = data.match(m3u8Reg);
 
             if (m3u8Match) {
                 let m3u8 = m3u8Match[0];
                 
-                // 4. 构建全小写的 Scheme，并对 m3u8 进行 URL 编码
-                let senplayerUrl = `senplayer://x-callback-url/play?url=${encodeURIComponent(m3u8)}`;
+                // 4. 【核心破解】生成一个属于该域名的伪装 HTTPS 链接
+                let redirectUrl = `https://apidd.btyjscl.com/senplayer_redirect?url=${encodeURIComponent(m3u8)}`;
                 
-                // 5. 【修正】直接使用字符串作为第 4 个参数，Stash 和小火箭通用
+                // 5. 此时传给 Stash 的是一个标准网页链接，它一定会尝试打开
                 $notification.post(
                     `▶ 解析成功: ${code.toUpperCase()}`, 
                     "Jable 视频源已找到", 
-                    "👇 点击此通知立即拉起 SenPlayer 播放", 
-                    senplayerUrl
+                    "👇 点击弹窗立即唤醒 SenPlayer", 
+                    redirectUrl
                 );
-            } else {
-                console.log(`[JavDB-SenPlayer] 影片 ${code} 暂无 Jable 资源`);
             }
-        } else {
-            console.log(`[JavDB-SenPlayer] 访问 Jable 失败`);
         }
-        
-        // 释放请求，让 App 正常显示详情页
         $done({ body });
     });
 } else {
