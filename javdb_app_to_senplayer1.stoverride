@@ -1,15 +1,21 @@
-let body = $response.body;
-let url = $request.url;
+name: "JavDB App to SenPlayer"
+desc: "适配第三方 JavDB App 的 API 接口"
 
-// 使用更宽泛的正则，直接在 JSON 数据中匹配类似 SSIS-123 的标准番号
-// 匹配 2-6个字母 + 连字符 + 3-5个数字
-let idReg = /([a-zA-Z]{2,6}-\d{3,5})/i;
-let match = body.match(idReg);
+script-providers:
+  javdb_app_to_senplayer:
+    # 确保此 URL 指向你更新后的 JS 脚本文件
+    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js
+    interval: 86400
 
-if (match && match[1]) {
-    let code = match[1].toLowerCase();
-    console.log(`[JavDB-SenPlayer] 抓取到番号: ${code}`);
-    
-    // ... 下面的请求 Jable 和发送通知的代码保持不变 ...
-    // let jableUrl = `https://jable.tv/videos/${code}/`;
-    // $httpClient.get({ ...
+http:
+  script:
+    # 匹配新的 API 接口域名
+    - match: ^https?:\/\/api\.liquidlink\.cn\/
+      name: javdb_app_to_senplayer
+      type: response
+      require-body: true
+      timeout: 10
+
+mitm:
+  host:
+    - api.liquidlink.cn
