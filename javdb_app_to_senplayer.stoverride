@@ -1,20 +1,20 @@
 name: "JavDB App to SenPlayer"
-desc: "适配第三方 JavDB App (域名: tp.cmastd.com)"
-tag: "自动化"
+desc: "拦截真实 API 获取番号并唤醒 SenPlayer"
 
-# MITM 必须在最顶层，域名建议加上双引号
 mitm:
   host:
-    - "tp.cmastd.com"
+    - "apidd.btyjscl.com"
 
 script-providers:
   javdb_app_to_senplayer:
-    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js?v=5"
+    # 注意这里加了 v=7 强制刷新你 GitHub 的缓存
+    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js?v=7"
     interval: 86400
 
 http:
   script:
-    - match: "^https?:\\/\\/tp\\.cmastd\\.com\\/"
+    # 精准匹配影片详情接口，忽略首页推荐等其他干扰请求
+    - match: "^https?:\\/\\/apidd\\.btyjscl\\.com\\/api\\/v[0-9]+\\/movies\\/[a-zA-Z0-9]+"
       name: "javdb_app_to_senplayer"
       type: "response"
       require-body: true
