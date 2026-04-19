@@ -4,7 +4,7 @@ if (!body) {
     $done({});
 }
 
-// 1. 直接在 JSON 数据中暴力匹配标准番号 (如 SSIS-123)
+// 1. 直接在 JSON 数据中暴力匹配标准番号
 let idReg = /([a-zA-Z]{2,6}-\d{3,5})/i;
 let match = body.match(idReg);
 
@@ -30,15 +30,16 @@ if (match && match[1]) {
             if (m3u8Match) {
                 let m3u8 = m3u8Match[0];
                 
-                // 4. 使用 SenPlayer 的标准 x-callback-url 接口，并对 m3u8 进行 URL 编码
-                let senplayerUrl = `SenPlayer://x-callback-url/play?url=${encodeURIComponent(m3u8)}`;
+                // 4. 构建全小写的 Scheme，并对 m3u8 进行 URL 编码
+                let senplayerUrl = `senplayer://x-callback-url/play?url=${encodeURIComponent(m3u8)}`;
                 
-                // 5. 发送唤醒 SenPlayer 的交互弹窗
-                if (typeof $environment !== 'undefined' && $environment['stash-version']) {
-                    $notification.post(`▶ 解析成功: ${code.toUpperCase()}`, "Jable 视频源已找到", "👇 点击此通知立即拉起 SenPlayer 播放", { url: senplayerUrl });
-                } else {
-                    $notification.post(`▶ 解析成功: ${code.toUpperCase()}`, "Jable 视频源已找到", "👇 点击此通知立即拉起 SenPlayer 播放", senplayerUrl);
-                }
+                // 5. 【修正】直接使用字符串作为第 4 个参数，Stash 和小火箭通用
+                $notification.post(
+                    `▶ 解析成功: ${code.toUpperCase()}`, 
+                    "Jable 视频源已找到", 
+                    "👇 点击此通知立即拉起 SenPlayer 播放", 
+                    senplayerUrl
+                );
             } else {
                 console.log(`[JavDB-SenPlayer] 影片 ${code} 暂无 Jable 资源`);
             }
