@@ -1,3 +1,6 @@
+name: "JavDB to SenPlayer"
+desc: "抓取 JavDB 番号匹配 Jable 源，并通过通知唤醒 SenPlayer播放器"
+
 script-providers:
   javdb_app_to_senplayer:
     url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js
@@ -5,9 +8,9 @@ script-providers:
 
 http:
   script:
-    # 匹配 JavDB 的影片详情页请求
     - match: ^https?:\/\/javdb\.com\/v\/
       name: javdb_app_to_senplayer
+      type: response
       require-body: true
       timeout: 10
 
