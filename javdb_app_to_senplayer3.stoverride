@@ -18,4 +18,4 @@ http:
 
 mitm:
   host:
-    - api.liquidlink.cn
+    - tp.cmastd.com
