@@ -1,8 +1,9 @@
 name: "JavDB App to SenPlayer"
 desc: "完美版：包含 JS 自动跳转网页"
 
-mitm:
-  host:
+http:
+
+  mitm:
     - "apidd.btyjscl.com"
 
 script-providers:
