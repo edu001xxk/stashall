@@ -11,10 +11,6 @@ script-providers:
     interval: 86400
 
 http:
-  # 新增：拦截伪造的 HTTPS 链接，并 302 重定向唤醒播放器
-  rewrite:
-    - "^https?:\\/\\/apidd\\.btyjscl\\.com\\/senplayer_redirect\\?url=(.*) 302 senplayer://x-callback-url/play?url=$1"
-    
   script:
     - match: "^https?:\\/\\/apidd\\.btyjscl\\.com\\/api\\/v[0-9]+\\/movies\\/[a-zA-Z0-9]+"
       name: "javdb_app_to_senplayer"
