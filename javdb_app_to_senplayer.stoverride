@@ -1,28 +1,31 @@
-name: "JavDB App to SenPlayer"
-desc: "完美版：包含 JS 自动跳转网页"
+name: |-
+  JavDB App to SenPlayer
+desc: |-
+  完美版：包含 JS 自动跳转网页
 
 http:
 
   mitm:
     - "apidd.btyjscl.com"
 
-script-providers:
-  javdb_app_to_senplayer:
-    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js?v=113
-    interval: 86400
-
-http:
   script:
-    # 1. 拦截通知点击后的网页，返回跳转 HTML (注意这里 type 是 request)
-    - match: "^https?:\\/\\/apidd\\.btyjscl\\.com\\/senplayer_redirect"
+# > 1. 拦截通知点击后的网页，返回跳转 HTML
+    - match: ^https?:\/\/apidd\.btyjscl\.com\/senplayer_redirect
       name: "javdb_app_to_senplayer"
-      type: "request"
+      type: request
       require-body: false
+      max-size: -1
       timeout: 10
       
-    # 2. 拦截 App 接口请求，抓取番号 (注意这里 type 是 response)
-    - match: "^https?:\\/\\/apidd\\.btyjscl\\.com\\/api\\/v[0-9]+\\/movies\\/[a-zA-Z0-9]+"
+# > 2. 拦截 App 接口请求，抓取番号
+    - match: ^https?:\/\/apidd\.btyjscl\.com\/api\/v[0-9]+\/movies\/[a-zA-Z0-9]+
       name: "javdb_app_to_senplayer"
-      type: "response"
+      type: response
       require-body: true
+      max-size: -1
       timeout: 10
+
+script-providers:
+  "javdb_app_to_senplayer":
+    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js?v=113
+    interval: 86400
