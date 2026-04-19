@@ -17,5 +17,5 @@ http:
 script-providers:
   "javdb_app_to_senplayer":
     # 请确保此处 URL 指向你托管上述 JS 脚本的地址
-    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_senplayer.js
+    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_senplayer.js?v=1
     interval: 86400
