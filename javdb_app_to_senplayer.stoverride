@@ -1,0 +1,16 @@
+script-providers:
+  javdb_app_to_senplayer:
+    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js
+    interval: 86400
+
+http:
+  script:
+    # 匹配 JavDB 的影片详情页请求
+    - match: ^https?:\/\/javdb\.com\/v\/
+      name: javdb_app_to_senplayer
+      require-body: true
+      timeout: 10
+
+mitm:
+  host:
+    - javdb.com
