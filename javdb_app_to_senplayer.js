@@ -1,23 +1,20 @@
-let url = $request.url;
 let body = $response.body;
 
-// 1. 安全防护：如果没有正文，或者请求的是图片/视频，直接静默放行，防止脚本崩溃！
-let isMedia = /\.(jpg|jpeg|png|gif|webp|mp4|m3u8|ts)(\?.*)?$/i.test(url);
-if (!body || isMedia) {
+if (!body) {
     $done({});
 }
 
-// 2. 尝试在返回的文本/JSON数据中提取番号
+// 1. 直接在 JSON 数据中暴力匹配标准番号 (如 SSIS-123, MIDV-001)
 let idReg = /([a-zA-Z]{2,6}-\d{3,5})/i;
 let match = body.match(idReg);
 
 if (match && match[1]) {
     let code = match[1].toLowerCase();
-    console.log(`[JavDB-SenPlayer] 成功在接口 ${url} 中抓取到番号: ${code}`);
+    console.log(`[JavDB-SenPlayer] 成功抓取到番号: ${code}`);
 
     let jableUrl = `https://jable.tv/videos/${code}/`;
 
-    // 3. 异步请求 Jable
+    // 2. 异步请求 Jable 页面
     $httpClient.get({
         url: jableUrl,
         headers: {
@@ -26,7 +23,7 @@ if (match && match[1]) {
     }, function(error, response, data) {
         if (!error && response.status === 200) {
             
-            // 4. 正则提取 m3u8 链接
+            // 3. 正则提取网页底层的 m3u8 串流链接
             let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/;
             let m3u8Match = data.match(m3u8Reg);
 
@@ -34,19 +31,22 @@ if (match && match[1]) {
                 let m3u8 = m3u8Match[0];
                 let senplayerUrl = `senplayer://${m3u8}`;
                 
-                // 5. 唤醒 SenPlayer 的通知弹窗
+                // 4. 发送唤醒 SenPlayer 的交互弹窗
                 if (typeof $environment !== 'undefined' && $environment['stash-version']) {
-                    $notification.post("▶ 解析成功: " + code.toUpperCase(), "Jable 源已找到", "👇 点击此通知立即跳转 SenPlayer 播放", { url: senplayerUrl });
+                    $notification.post(`▶ 解析成功: ${code.toUpperCase()}`, "Jable 视频源已找到", "👇 点击此通知立即拉起 SenPlayer 播放", { url: senplayerUrl });
                 } else {
-                    $notification.post("▶ 解析成功: " + code.toUpperCase(), "Jable 源已找到", "👇 点击此通知立即跳转 SenPlayer 播放", senplayerUrl);
+                    $notification.post(`▶ 解析成功: ${code.toUpperCase()}`, "Jable 视频源已找到", "👇 点击此通知立即拉起 SenPlayer 播放", senplayerUrl);
                 }
             } else {
-                console.log(`[JavDB-SenPlayer] 影片 ${code} 未在 Jable 找到源`);
+                console.log(`[JavDB-SenPlayer] 影片 ${code} 暂无 Jable 资源`);
             }
+        } else {
+            console.log(`[JavDB-SenPlayer] 访问 Jable 失败`);
         }
+        
+        // 释放请求，让 App 正常显示详情页
         $done({ body });
     });
 } else {
-    // 没匹配到番号，原样放行
     $done({ body });
 }
