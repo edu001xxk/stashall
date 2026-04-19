@@ -1,5 +1,5 @@
 name: "JavDB App to SenPlayer"
-desc: "拦截真实 API 获取番号并唤醒 SenPlayer"
+desc: "最终版：解决弹窗跳转 App 拦截问题"
 
 mitm:
   host:
@@ -7,13 +7,15 @@ mitm:
 
 script-providers:
   javdb_app_to_senplayer:
-    # 注意这里加了 v=7 强制刷新你 GitHub 的缓存
-    url: "https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js?v=3"
+    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js?v=10
     interval: 86400
 
 http:
+  # 新增：拦截伪造的 HTTPS 链接，并 302 重定向唤醒播放器
+  rewrite:
+    - "^https?:\\/\\/apidd\\.btyjscl\\.com\\/senplayer_redirect\\?url=(.*) 302 senplayer://x-callback-url/play?url=$1"
+    
   script:
-    # 精准匹配影片详情接口，忽略首页推荐等其他干扰请求
     - match: "^https?:\\/\\/apidd\\.btyjscl\\.com\\/api\\/v[0-9]+\\/movies\\/[a-zA-Z0-9]+"
       name: "javdb_app_to_senplayer"
       type: "response"
