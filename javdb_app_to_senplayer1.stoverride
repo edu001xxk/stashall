@@ -1,19 +1,15 @@
-name: "JavDB to SenPlayer"
-desc: "抓取 JavDB 番号匹配 Jable 源，并通过通知唤醒 SenPlayer播放器"
+let body = $response.body;
+let url = $request.url;
 
-script-providers:
-  javdb_app_to_senplayer:
-    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js
-    interval: 86400
+// 使用更宽泛的正则，直接在 JSON 数据中匹配类似 SSIS-123 的标准番号
+// 匹配 2-6个字母 + 连字符 + 3-5个数字
+let idReg = /([a-zA-Z]{2,6}-\d{3,5})/i;
+let match = body.match(idReg);
 
-http:
-  script:
-    - match: ^https?:\/\/javdb\.com\/v\/
-      name: javdb_app_to_senplayer
-      type: response
-      require-body: true
-      timeout: 10
-
-mitm:
-  host:
-    - javdb.com
+if (match && match[1]) {
+    let code = match[1].toLowerCase();
+    console.log(`[JavDB-SenPlayer] 抓取到番号: ${code}`);
+    
+    // ... 下面的请求 Jable 和发送通知的代码保持不变 ...
+    // let jableUrl = `https://jable.tv/videos/${code}/`;
+    // $httpClient.get({ ...
