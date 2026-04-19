@@ -7,7 +7,7 @@ mitm:
 
 script-providers:
   javdb_app_to_senplayer:
-    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js?v=12
+    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js?v=1
     interval: 86400
 
 http:
