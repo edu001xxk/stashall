@@ -1,5 +1,5 @@
 name: "JavDB App to SenPlayer"
-desc: "最终版：解决弹窗跳转 App 拦截问题"
+desc: "最终版"
 
 mitm:
   host:
