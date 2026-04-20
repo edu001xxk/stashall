@@ -1,11 +1,12 @@
 let body = (typeof $response !== "undefined" && $response.body) ? $response.body : "";
+let url = (typeof $request !== "undefined" && $request.url) ? $request.url : "";
 
-if (!body) {
-    $done({});
+if (!body || !url) {
+    $done(typeof $response !== "undefined" ? { body: $response.body || "" } : {});
 } else {
-    // 🌟 核心防误弹逻辑 🌟
-    // 检查网页代码中是否包含详情页特有的 video-detail 标识，如果没有则直接跳过
-    if (!body.includes("video-detail")) {
+    // 🌟 终极防误弹逻辑：直接判断 URL 路径 🌟
+    // JavDB 的详情页 URL 必然包含 "/v/"，如果当前链接没有 "/v/"，说明绝对不是详情页
+    if (!url.includes("/v/")) {
         $done({ body });
     } else {
         // 提取 body 中所有的番号 (加了 g 标志进行全局匹配)
@@ -13,8 +14,7 @@ if (!body) {
         let allMatches = body.match(idRegGlobal);
 
         if (allMatches && allMatches.length > 0) {
-            // 如果是详情页，通常只有当前影片的主番号（偶尔带一两个关联番号）
-            // 我们取第一个匹配到的作为目标番号
+            // 取第一个匹配到的作为目标番号
             let code = allMatches[0].toLowerCase();
             
             // --- Stash 10秒防并发锁 ---
@@ -36,7 +36,7 @@ if (!body) {
                     $persistentStore.write(now.toString(), cacheKey);
                 }
                 
-                console.log(`\n[JavDB-SenPlayer] 🔍 确认进入详情页，开始搜索番号: ${code.toUpperCase()}`);
+                console.log(`\n[JavDB-SenPlayer] 🔍 确认进入详情页 (URL校验通过)，开始搜索番号: ${code.toUpperCase()}`);
                 runJableSearch(code);
             }
         } else {
