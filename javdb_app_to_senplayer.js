@@ -266,24 +266,29 @@ function findStream(data, domain) {
 }
 
 // ==========================================
-// 通用工具：工业级提取 iframe，过滤垃圾广告
+// 通用工具：工业级提取 iframe，自动规避懒加载和屏蔽广告
 // ==========================================
 function extractIframe(html, domain) {
     if (!html) return null;
-    let iframeReg = /<iframe[^>]+src=["']([^"']+)["']/gi;
+    // 扩展雷达：兼容 iframe、video、source 标签，兼容 src、data-src、data-litespeed-src 属性
+    let iframeReg = /<(?:iframe|video|source)[^>]+(?:src|data-src|data-litespeed-src)=["']([^"']+)["']/gi;
     let match;
     let fallbackUrl = null;
+    let diagnosticUrls = [];
     
-    // 黑名单：常见广告域名和参数特征
-    let adKeywords = ["ads", "banner", "ad.html", "pop", "widgets", "creative", "mnaspm", "exosrv", "realsrv", "campaignid", "affiliate", "tracker", "clicks"];
-    // 白名单：真实的视频解析或网盘特征
-    let playerKeywords = ["play", "video", "embed", "player", "stream", "dood", "netu", "hxfile", "waaw", "vidoza", "mixdrop", "jawcloud"];
+    // 黑名单
+    let adKeywords = ["ads", "banner", "ad.html", "pop", "widgets", "creative", "mnaspm", "exosrv", "realsrv", "campaignid", "affiliate", "tracker", "clicks", "histats"];
+    // 白名单
+    let playerKeywords = ["play", "video", "embed", "player", "stream", "dood", "netu", "hxfile", "waaw", "vidoza", "mixdrop", "jawcloud", "uqload", "voe", "upstream"];
 
     while ((match = iframeReg.exec(html)) !== null) {
         let url = match[1];
         let urlLower = url.toLowerCase();
 
-        // 1. 如果命中广告黑名单，直接丢弃，继续找下一个
+        // 屏蔽无关痛痒的 js/css 文件或者空白框架
+        if (url.length < 5 || urlLower.endsWith('.js') || urlLower.endsWith('.css') || url === 'about:blank') continue;
+        diagnosticUrls.push(url);
+
         let isAd = false;
         for (let i = 0; i < adKeywords.length; i++) {
             if (urlLower.includes(adKeywords[i])) {
@@ -293,19 +298,21 @@ function extractIframe(html, domain) {
         }
         if (isAd) continue;
 
-        // 处理相对路径
         if (url.startsWith("//")) url = "https:" + url;
         else if (url.startsWith("/")) url = domain + url;
         
-        // 2. 如果命中白名单，说明就是正主，立刻返回
         for (let i = 0; i < playerKeywords.length; i++) {
             if (urlLower.includes(playerKeywords[i])) {
-                return url;
+                return url; // 发现正牌播放器，立刻返回
             }
         }
         
-        // 3. 既不是明确的广告，也没明显特征，暂且当做备胎
         if (!fallbackUrl) fallbackUrl = url;
+    }
+    
+    // 【核心诊断】：如果什么都没匹配上，打印出这层网页里所有的嫌疑链接
+    if (!fallbackUrl && diagnosticUrls.length > 0) {
+        console.log(`[JavDB-SenPlayer] ⚠️ 诊断信息: 页面含以下嫌疑链接，但未能匹配白名单:\n ${diagnosticUrls.join(' \n ')}`);
     }
     
     return fallbackUrl;
