@@ -1,9 +1,8 @@
-let body = $response.body;
+let body = $response.body; // 注意这里把你的 Let 改成了规范的小写 let
 
 if (!body) {
     $done({});
-    // 【防卡死修复】必须加上 return，否则下面 body.match 会报错导致所有影片无限加载
-    return;
+    return; // 补上一个 return，防止 body 为空时导致下方正则报错卡死
 }
 
 // 1. 匹配标准番号
@@ -23,7 +22,7 @@ if (match && match[1]) {
     }, function(error, response, data) {
         let foundM3u8 = false;
 
-        // 增加 response 和 data 的判空，防止网络不稳定时报错
+        // 增加了 response 的判空，防止偶发网络断开时报错
         if (!error && response && response.status === 200) {
             let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
             let m3u8Match = data ? data.match(m3u8Reg) : null;
@@ -33,33 +32,11 @@ if (match && match[1]) {
             }
         }
         
-        // 3. Jable 原番号没找到，嵌套重试带 -c 后缀的链接
+        // 3. 备用方案：Jable没找到，转而搜索 123AV
         if (!foundM3u8) {
-            console.log(`[JavDB-SenPlayer] ⚠️ Jable 未找到，尝试带 -c 后缀...`);
-            let jableUrlC = `https://jable.tv/videos/${code}-c/`;
-            
-            $httpClient.get({
-                url: jableUrlC,
-                headers: getFakeHeaders()
-            }, function(errC, respC, dataC) {
-                let foundC = false;
-
-                if (!errC && respC && respC.status === 200) {
-                    let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
-                    let m3u8MatchC = dataC ? dataC.match(m3u8Reg) : null;
-                    if (m3u8MatchC) {
-                        foundC = true;
-                        handleSuccess(code, m3u8MatchC[0], "Jable");
-                    }
-                }
-
-                // 4. Jable 两次都没找到，转去 123AV
-                if (!foundC) {
-                    console.log(`[JavDB-SenPlayer] ⚠️ Jable 均未找到或被拦截，转去 123AV...`);
-                    // 123AV 首选直接尝试 /zh/v/ 路径
-                    fetch123AV(`https://123av.com/zh/v/${code}`, code, 0);
-                }
-            });
+            console.log(`[JavDB-SenPlayer] ⚠️ Jable 未找到或被拦截，转去 123AV...`);
+            // 首选尝试 123AV 的直接播放路径
+            fetch123AV(`https://123av.com/zh/v/${code}`, code, 0);
         }
     });
 } else {
@@ -71,7 +48,7 @@ if (match && match[1]) {
 // ==========================================
 function fetch123AV(url, code, redirectCount) {
     if (redirectCount > 3) {
-        console.log(`[JavDB-SenPlayer] ❌ 123AV 重定向次数过多，已停止请求`);
+        console.log(`[JavDB-SenPlayer] ❌ 123AV 重定向/重试次数过多，已停止请求`);
         $done({ body });
         return;
     }
@@ -90,7 +67,7 @@ function fetch123AV(url, code, redirectCount) {
             $done({ body });
             return;
         }
-
+        
         // 【CF 盾检测】
         if (resp.status === 403 || resp.status === 503) {
             console.log(`[JavDB-SenPlayer] 🛡️ 遭遇 CF 盾拦截！状态码: ${resp.status}，脚本无法绕过此级别防御。`);
@@ -114,39 +91,35 @@ function fetch123AV(url, code, redirectCount) {
             return;
         }
         
-        // 【核心修改】兼容处理 200 和 404
-        if (resp.status === 200 || resp.status === 404) {
-            // 防崩溃判空
-            let unescapedData = (data && resp.status === 200) ? data.replace(/\\/g, "") : "";
+        // 如果成功获取网页
+        if (resp.status === 200) {
+            let unescapedData = data ? data.replace(/\\/g, "") : "";
             let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
             let m3u8Match = unescapedData.match(m3u8Reg);
 
-            if (m3u8Match && resp.status === 200) {
+            if (m3u8Match) {
                 handleSuccess(code, m3u8Match[0], "123AV");
             } else {
-                console.log(`[JavDB-SenPlayer] ⚠️ 123AV 当前路径(状态码${resp.status})未找到m3u8。`);
+                console.log(`[JavDB-SenPlayer] ⚠️ 123AV (状态码200) 未找到m3u8。`);
                 
-                // 遇到找不到时，按照顺序尝试其他网址
                 if (redirectCount === 0) {
-                    console.log(`[JavDB-SenPlayer] 尝试使用 123AV 的 -c 后缀...`);
-                    fetch123AV(`https://123av.com/zh/v/${code}-c`, code, 1);
-                } else if (redirectCount === 1) {
-                    console.log(`[JavDB-SenPlayer] 尝试使用 123AV 搜索接口...`);
-                    fetch123AV(`https://123av.com/zh/search?q=${code}`, code, 2);
-                } else if (redirectCount === 2 && resp.status === 200) {
-                    // 如果在搜索页面，尝试提取列表里的详情链接
-                    let videoLinkReg = new RegExp(`href="([^"]*(?:v|video)[^"]*${code}[^"]*)"`, "i");
-                    let linkMatch = unescapedData.match(videoLinkReg);
-                    if (linkMatch && linkMatch[1]) {
-                        let nextUrl = linkMatch[1].startsWith('/') ? "https://123av.com" + linkMatch[1] : linkMatch[1];
-                        console.log(`[JavDB-SenPlayer] 找到列表详情页: ${nextUrl}`);
-                        fetch123AV(nextUrl, code, 3);
-                    } else {
-                        $done({ body });
-                    }
+                    console.log(`[JavDB-SenPlayer] 尝试使用搜索接口...`);
+                    // 备选尝试 123AV 的搜索路径
+                    fetch123AV(`https://123av.com/zh/search?q=${code}`, code, 1);
                 } else {
                     $done({ body });
                 }
+            }
+        } 
+        // 兼容 123AV 常见的 404 错误
+        else if (resp.status === 404) {
+            console.log(`[JavDB-SenPlayer] ⚠️ 123AV 遇到404。`);
+            if (redirectCount === 0) {
+                console.log(`[JavDB-SenPlayer] 尝试使用带 -c 后缀的视频路径...`);
+                // 123AV 有时会在番号后加 -c
+                fetch123AV(`https://123av.com/zh/v/${code}-c`, code, 1);
+            } else {
+                $done({ body });
             }
         } else {
             console.log(`[JavDB-SenPlayer] ❌ 未知错误，状态码: ${resp.status}`);
@@ -156,7 +129,7 @@ function fetch123AV(url, code, redirectCount) {
 }
 
 // ==========================================
-// 伪装请求头（完全保留原样）
+// 伪装请求头（尝试欺骗防爬虫策略）
 // ==========================================
 function getFakeHeaders() {
     return {
@@ -168,7 +141,7 @@ function getFakeHeaders() {
 }
 
 // ==========================================
-// 提取成功后的处理函数（完全保留原样）
+// 提取成功后的处理函数
 // ==========================================
 function handleSuccess(code, m3u8, source) {
     console.log(`\n==================================`);
