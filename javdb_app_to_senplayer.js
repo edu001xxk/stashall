@@ -1,49 +1,54 @@
-let body = (typeof $response !== "undefined" && $response.body) ? $response.body : "";
+try {
+    let body = (typeof $response !== "undefined" && $response.body) ? $response.body : "";
 
-if (!body) {
-    $done({});
-} else {
-    // 🌟 核心防误弹逻辑：检查是否包含详情页特有的标识 🌟
-    // 替代之前的番号数量判断，完美解决首页加载不完全导致的误判断问题
-    if (!body.includes("video-detail")) {
-        // console.log(`[JavDB-SenPlayer] 未检测到 video-detail 标识，判断为非详情页，跳过执行。`);
-        $done({ body });
+    // 1. 如果没有 body，或者 body 不是字符串（可能是二进制图片等），直接放行
+    if (!body || typeof body !== "string") {
+        $done({});
     } else {
-        // 确认是详情页后，提取 body 中所有的番号 (加了 g 标志进行全局匹配)
-        let idRegGlobal = /([a-zA-Z]{2,6}-\d{3,5})/gi;
-        let allMatches = body.match(idRegGlobal);
-
-        if (allMatches && allMatches.length > 0) {
-            // 如果是详情页，通常第一个匹配到的就是当前影片的主番号
-            let code = allMatches[0].toLowerCase();
-            
-            // --- Stash 10秒防并发锁 ---
-            let cacheKey = "javdb_stash_lock_" + code;
-            let now = Date.now();
-            let lastTime = 0;
-
-            if (typeof $persistentStore !== "undefined") {
-                let cacheStr = $persistentStore.read(cacheKey);
-                if (cacheStr) lastTime = parseInt(cacheStr);
-            }
-
-            if (now - lastTime < 10000) {
-                console.log(`\n[JavDB-SenPlayer] ♻️ Stash 防抖拦截: 10秒内重复请求了 ${code.toUpperCase()}`);
-                $done({ body });
-            } else {
-                // 写入锁定时间
-                if (typeof $persistentStore !== "undefined") {
-                    $persistentStore.write(now.toString(), cacheKey);
-                }
-                
-                console.log(`\n[JavDB-SenPlayer] 🔍 确认进入详情页 (检测到 video-detail)，开始搜索番号: ${code.toUpperCase()}`);
-                runJableSearch(code);
-            }
+        // 2. 检查是否包含详情页特有的标识
+        if (!body.includes("video-detail")) {
+            // 不是详情页，直接放行原始数据
+            $done({});
         } else {
-            // 没找到番号，直接放行
-            $done({ body });
+            // 确认是详情页，开始提取番号
+            let idRegGlobal = /([a-zA-Z]{2,6}-\d{3,5})/gi;
+            let allMatches = body.match(idRegGlobal);
+
+            if (allMatches && allMatches.length > 0) {
+                let code = allMatches[0].toLowerCase();
+                
+                // --- Stash 10秒防并发锁 ---
+                let cacheKey = "javdb_stash_lock_" + code;
+                let now = Date.now();
+                let lastTime = 0;
+
+                if (typeof $persistentStore !== "undefined") {
+                    let cacheStr = $persistentStore.read(cacheKey);
+                    if (cacheStr) lastTime = parseInt(cacheStr);
+                }
+
+                if (now - lastTime < 10000) {
+                    console.log(`\n[JavDB-SenPlayer] ♻️ Stash 防抖拦截: 10秒内重复请求了 ${code.toUpperCase()}`);
+                    $done({}); // 拦截后依然放行原始网页
+                } else {
+                    // 写入锁定时间
+                    if (typeof $persistentStore !== "undefined") {
+                        $persistentStore.write(now.toString(), cacheKey);
+                    }
+                    
+                    console.log(`\n[JavDB-SenPlayer] 🔍 确认进入详情页，开始搜索番号: ${code.toUpperCase()}`);
+                    runJableSearch(code);
+                }
+            } else {
+                // 没找到番号，放行
+                $done({});
+            }
         }
     }
+} catch (error) {
+    // 捕获所有代码报错，防止脚本崩溃导致网页卡死
+    console.log(`[JavDB-SenPlayer] ❌ 脚本执行发生错误: ${error}`);
+    $done({});
 }
 
 // ==========================================
@@ -95,7 +100,7 @@ function runJableCSearch(code) {
         
         if (!foundM3u8) {
             console.log(`[JavDB-SenPlayer] ❌ Jable 原番号及 -c 后缀均未找到，解析结束。`);
-            $done({ body });
+            $done({}); // 结束解析，放行
         }
     });
 }
@@ -132,5 +137,5 @@ function handleSuccess(code, m3u8, source) {
         $notification.post(title, subtitle, content, shortcutUrl);
     }
     
-    $done({ body });
+    $done({}); // 成功后也要放行原网页
 }
