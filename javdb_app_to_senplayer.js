@@ -1,20 +1,24 @@
 let body = (typeof $response !== "undefined" && $response.body) ? $response.body : "";
-let url = (typeof $request !== "undefined" && $request.url) ? $request.url : "";
 
-if (!body || !url) {
-    $done(typeof $response !== "undefined" ? { body: $response.body || "" } : {});
+if (!body) {
+    $done({});
 } else {
-    // 🌟 终极防误弹逻辑：直接判断 URL 路径 🌟
-    // JavDB 的详情页 URL 必然包含 "/v/"，如果当前链接没有 "/v/"，说明绝对不是详情页
-    if (!url.includes("/v/")) {
-        $done({ body });
-    } else {
-        // 提取 body 中所有的番号 (加了 g 标志进行全局匹配)
-        let idRegGlobal = /([a-zA-Z]{2,6}-\d{3,5})/gi;
-        let allMatches = body.match(idRegGlobal);
+    // 提取 body 中所有的番号 (加了 g 标志进行全局匹配)
+    let idRegGlobal = /([a-zA-Z]{2,6}-\d{3,5})/gi;
+    let allMatches = body.match(idRegGlobal);
 
-        if (allMatches && allMatches.length > 0) {
-            // 取第一个匹配到的作为目标番号
+    if (allMatches && allMatches.length > 0) {
+        // 转小写并去重，统计这个数据包里有多少个【不同】的番号
+        let uniqueCodes = new Set(allMatches.map(c => c.toLowerCase()));
+        
+        // 🌟 核心防误弹逻辑 🌟
+        // 如果包含超过 5 个不同的番号，说明这绝对是首页的推荐列表或排行榜，直接跳过！
+        if (uniqueCodes.size > 5) {
+            // console.log(`[JavDB-SenPlayer] 识别为列表页 (包含 ${uniqueCodes.size} 个番号)，跳过执行。`);
+            $done({ body });
+        } else {
+            // 如果是详情页，通常只有当前影片的主番号（偶尔带一两个关联番号）
+            // 我们取第一个匹配到的作为目标番号
             let code = allMatches[0].toLowerCase();
             
             // --- Stash 10秒防并发锁 ---
@@ -36,13 +40,13 @@ if (!body || !url) {
                     $persistentStore.write(now.toString(), cacheKey);
                 }
                 
-                console.log(`\n[JavDB-SenPlayer] 🔍 确认进入详情页 (URL校验通过)，开始搜索番号: ${code.toUpperCase()}`);
+                console.log(`\n[JavDB-SenPlayer] 🔍 确认进入详情页，开始搜索番号: ${code.toUpperCase()}`);
                 runJableSearch(code);
             }
-        } else {
-            // 没找到番号，直接放行
-            $done({ body });
         }
+    } else {
+        // 没找到番号，直接放行
+        $done({ body });
     }
 }
 
