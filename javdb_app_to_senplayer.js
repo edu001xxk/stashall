@@ -17,7 +17,7 @@ if (originalBody) {
 }
 
 // ==========================================
-// 顺位一：Jable
+// 顺位一：Jable (含 -c 后缀自动重试)
 // ==========================================
 function checkJable(code, isRetry) {
     let targetCode = isRetry ? `${code}-c` : code;
@@ -36,10 +36,10 @@ function checkJable(code, isRetry) {
         }
         
         if (!isRetry) {
-            console.log(`[JavDB-SenPlayer] ⚠️ Jable 未找到，尝试 -c 后缀...`);
+            console.log(`[JavDB-SenPlayer] ⚠️ Jable 原番号未找到，尝试 -c 后缀...`);
             checkJable(code, true);
         } else {
-            console.log(`[JavDB-SenPlayer] ⚠️ Jable 均未找到，转去第二顺位 MissAV...`);
+            console.log(`[JavDB-SenPlayer] ⚠️ Jable 均未找到或被拦截，转去第二顺位 MissAV...`);
             fetchMissAV(`https://missav.ws/cn/${code}`, code, 0);
         }
     });
@@ -59,6 +59,7 @@ function fetchMissAV(url, code, step) {
         url: url,
         headers: getFakeHeaders()
     }, function(err, resp, data) {
+        // 如果遇到 403/503 CF 盾，直接转交下一顺位，绝不停止！
         if (err || !resp || resp.status === 403 || resp.status === 503) {
             console.log(`[JavDB-SenPlayer] ❌ MissAV 报错或遭遇 CF 盾，转去 SupJav...`);
             fetchSupJav(`https://supjav.com/zh/?s=${code}`, code, 0);
@@ -119,6 +120,7 @@ function fetchSupJav(url, code, step) {
         url: url,
         headers: getFakeHeaders()
     }, function(err, resp, data) {
+        // 如果遇到 403/503 CF 盾，直接转交下一顺位
         if (err || !resp || resp.status === 403 || resp.status === 503) {
             console.log(`[JavDB-SenPlayer] ❌ SupJav 报错或遭遇 CF 盾，转去 JavGuru...`);
             fetchJavGuru(`https://jav.guru/?s=${code}`, code, 0);
@@ -172,11 +174,11 @@ function fetchSupJav(url, code, step) {
 }
 
 // ==========================================
-// 顺位四：JavGuru (终极兜底 - 开启无限套娃穿透)
+// 顺位四：JavGuru (无限套娃穿透)
 // ==========================================
 function fetchJavGuru(url, code, step) {
-    if (step > 4) { // 最高允许钻探 4 层 iframe
-        console.log(`[JavDB-SenPlayer] ❌ JavGuru 嵌套过深，所有站源均未找到该影片。`);
+    if (step > 4) {
+        console.log(`[JavDB-SenPlayer] ❌ JavGuru 嵌套过深，所有线路彻底穷尽。`);
         $done({ body: originalBody });
         return;
     }
@@ -187,11 +189,11 @@ function fetchJavGuru(url, code, step) {
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "zh-CN,zh-Hans;q=0.9",
-            "Referer": url // 保留 Referer 防止防盗链
+            "Referer": url
         }
     }, function(err, resp, data) {
         if (err || !resp || resp.status === 403 || resp.status === 503) {
-            console.log(`[JavDB-SenPlayer] ❌ JavGuru 报错或遭遇 CF 盾，搜索终止。`);
+            console.log(`[JavDB-SenPlayer] ❌ JavGuru 报错或遭遇 CF 盾，全站搜索终止。`);
             $done({ body: originalBody });
             return;
         }
@@ -216,7 +218,6 @@ function fetchJavGuru(url, code, step) {
         }
 
         if (step === 0) {
-            // 第 0 层：在搜索页提取视频详情页链接
             let pureCode = code.replace("-", "");
             let linkReg = new RegExp(`href=["'](https?:\\/\\/jav\\.guru\\/\\d+\\/[^"']*(?:${code}|${pureCode})[^"']*)["']`, "i");
             let linkMatch = dataStr.match(linkReg);
@@ -233,7 +234,6 @@ function fetchJavGuru(url, code, step) {
                 $done({ body: originalBody });
             }
         } else {
-            // 第 1, 2, 3 层：如果没有直链，继续在当前页面寻找下一层嵌套的 iframe
             let iframeUrl = extractIframe(dataStr, "https://jav.guru");
             if (iframeUrl) {
                 console.log(`[JavDB-SenPlayer] 🔍 深入第 ${step} 层嵌套播放器: ${iframeUrl}`);
@@ -268,7 +268,7 @@ function findStream(data, domain) {
 }
 
 // ==========================================
-// 通用工具：提取 iframe 播放器链接 (增强雷达，优先锁定真实播放器)
+// 通用工具：提取 iframe 播放器链接
 // ==========================================
 function extractIframe(html, domain) {
     if (!html) return null;
@@ -278,12 +278,10 @@ function extractIframe(html, domain) {
     
     while ((match = iframeReg.exec(html)) !== null) {
         let url = match[1];
-        // 过滤常见的广告、弹窗链接
         if (!url.includes("ads") && !url.includes("banner") && !url.includes("ad.html") && !url.includes("pop")) {
             if (url.startsWith("//")) url = "https:" + url;
             else if (url.startsWith("/")) url = domain + url;
             
-            // 优先返回带有播放器特征的链接
             if (url.includes("play") || url.includes("video") || url.includes("embed") || url.includes("player")) {
                 return url;
             }
