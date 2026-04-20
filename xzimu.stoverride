@@ -1,7 +1,7 @@
 name: |-
   X字幕 (xzimu) 无限翻译次数
 desc: |-
-  @怎么肥事 (Update: 2026-04-20)
+  @怎么肥事 修复Stash不生效问题
 
 http:
 
@@ -11,29 +11,29 @@ http:
   script:
 # > X字幕_user_updateStatus
     - match: "^https?:\\/\\/apps\\.tltgame\\.com\\/api\\/user\\/updateStatus"
-      name: "xzimu_unlock"
-      type: response
+      name: "xzimu_unlock_res"
+      type: "response"
       require-body: true
-      max-size: -1
-      timeout: 60
+      timeout: 10
 
 # > X字幕_task_offline_post_请求体
     - match: "^https?:\\/\\/apps\\.tltgame\\.com\\/api\\/task\\/offline\\/post"
-      name: "xzimu_unlock"
-      type: request
+      name: "xzimu_unlock_req"
+      type: "request"
       require-body: true
-      max-size: -1
-      timeout: 60
+      timeout: 10
 
 # > X字幕_task_offline_post_响应体
     - match: "^https?:\\/\\/apps\\.tltgame\\.com\\/api\\/task\\/offline\\/post"
-      name: "xzimu_unlock"
-      type: response
+      name: "xzimu_unlock_res"
+      type: "response"
       require-body: true
-      max-size: -1
-      timeout: 60
+      timeout: 10
 
 script-providers:
-  "xzimu_unlock":
+  "xzimu_unlock_req":
+    url: https://raw.githubusercontent.com/ZenmoFeiShi/Qx/refs/heads/main/xzimu-unlock.js
+    interval: 86400
+  "xzimu_unlock_res":
     url: https://raw.githubusercontent.com/ZenmoFeiShi/Qx/refs/heads/main/xzimu-unlock.js
     interval: 86400
