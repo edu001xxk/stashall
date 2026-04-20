@@ -17,7 +17,7 @@ if (originalBody) {
 }
 
 // ==========================================
-// 顺位一：Jable (含 -c 后缀自动重试)
+// 顺位一：Jable
 // ==========================================
 function checkJable(code, isRetry) {
     let targetCode = isRetry ? `${code}-c` : code;
@@ -36,7 +36,7 @@ function checkJable(code, isRetry) {
         }
         
         if (!isRetry) {
-            console.log(`[JavDB-SenPlayer] ⚠️ Jable 原番号未找到，尝试 -c 后缀...`);
+            console.log(`[JavDB-SenPlayer] ⚠️ Jable 未找到，尝试 -c 后缀...`);
             checkJable(code, true);
         } else {
             console.log(`[JavDB-SenPlayer] ⚠️ Jable 均未找到或被拦截，转去第二顺位 MissAV...`);
@@ -59,7 +59,6 @@ function fetchMissAV(url, code, step) {
         url: url,
         headers: getFakeHeaders()
     }, function(err, resp, data) {
-        // 如果遇到 403/503 CF 盾，直接转交下一顺位，绝不停止！
         if (err || !resp || resp.status === 403 || resp.status === 503) {
             console.log(`[JavDB-SenPlayer] ❌ MissAV 报错或遭遇 CF 盾，转去 SupJav...`);
             fetchSupJav(`https://supjav.com/zh/?s=${code}`, code, 0);
@@ -120,7 +119,6 @@ function fetchSupJav(url, code, step) {
         url: url,
         headers: getFakeHeaders()
     }, function(err, resp, data) {
-        // 如果遇到 403/503 CF 盾，直接转交下一顺位
         if (err || !resp || resp.status === 403 || resp.status === 503) {
             console.log(`[JavDB-SenPlayer] ❌ SupJav 报错或遭遇 CF 盾，转去 JavGuru...`);
             fetchJavGuru(`https://jav.guru/?s=${code}`, code, 0);
@@ -174,7 +172,7 @@ function fetchSupJav(url, code, step) {
 }
 
 // ==========================================
-// 顺位四：JavGuru (无限套娃穿透)
+// 顺位四：JavGuru 
 // ==========================================
 function fetchJavGuru(url, code, step) {
     if (step > 4) {
@@ -236,7 +234,7 @@ function fetchJavGuru(url, code, step) {
         } else {
             let iframeUrl = extractIframe(dataStr, "https://jav.guru");
             if (iframeUrl) {
-                console.log(`[JavDB-SenPlayer] 🔍 深入第 ${step} 层嵌套播放器: ${iframeUrl}`);
+                console.log(`[JavDB-SenPlayer] 🔍 深入嵌套层，追踪播放器: ${iframeUrl}`);
                 fetchJavGuru(iframeUrl, code, step + 1);
             } else {
                 console.log(`[JavDB-SenPlayer] ❌ 第 ${step} 层未找到下层嵌套或直链，搜索终止。`);
@@ -268,7 +266,7 @@ function findStream(data, domain) {
 }
 
 // ==========================================
-// 通用工具：提取 iframe 播放器链接
+// 通用工具：工业级提取 iframe，过滤垃圾广告
 // ==========================================
 function extractIframe(html, domain) {
     if (!html) return null;
@@ -276,18 +274,40 @@ function extractIframe(html, domain) {
     let match;
     let fallbackUrl = null;
     
+    // 黑名单：常见广告域名和参数特征
+    let adKeywords = ["ads", "banner", "ad.html", "pop", "widgets", "creative", "mnaspm", "exosrv", "realsrv", "campaignid", "affiliate", "tracker", "clicks"];
+    // 白名单：真实的视频解析或网盘特征
+    let playerKeywords = ["play", "video", "embed", "player", "stream", "dood", "netu", "hxfile", "waaw", "vidoza", "mixdrop", "jawcloud"];
+
     while ((match = iframeReg.exec(html)) !== null) {
         let url = match[1];
-        if (!url.includes("ads") && !url.includes("banner") && !url.includes("ad.html") && !url.includes("pop")) {
-            if (url.startsWith("//")) url = "https:" + url;
-            else if (url.startsWith("/")) url = domain + url;
-            
-            if (url.includes("play") || url.includes("video") || url.includes("embed") || url.includes("player")) {
+        let urlLower = url.toLowerCase();
+
+        // 1. 如果命中广告黑名单，直接丢弃，继续找下一个
+        let isAd = false;
+        for (let i = 0; i < adKeywords.length; i++) {
+            if (urlLower.includes(adKeywords[i])) {
+                isAd = true;
+                break;
+            }
+        }
+        if (isAd) continue;
+
+        // 处理相对路径
+        if (url.startsWith("//")) url = "https:" + url;
+        else if (url.startsWith("/")) url = domain + url;
+        
+        // 2. 如果命中白名单，说明就是正主，立刻返回
+        for (let i = 0; i < playerKeywords.length; i++) {
+            if (urlLower.includes(playerKeywords[i])) {
                 return url;
             }
-            if (!fallbackUrl) fallbackUrl = url;
         }
+        
+        // 3. 既不是明确的广告，也没明显特征，暂且当做备胎
+        if (!fallbackUrl) fallbackUrl = url;
     }
+    
     return fallbackUrl;
 }
 
