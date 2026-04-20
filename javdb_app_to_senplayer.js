@@ -1,6 +1,5 @@
 let body = typeof $response !== 'undefined' ? $response.body : null;
 
-// 安全的包裹层，彻底杜绝崩溃
 if (body) {
     // 1. 匹配标准番号
     let idReg = /([a-zA-Z]{2,6}-\d{3,5})/i;
@@ -46,10 +45,10 @@ if (body) {
                         }
                     }
 
-                    // 4. Jable 均未找到，动用终极武器：请求 123AV 隐藏 API
+                    // 4. Jable 均未找到，直接启动 123AV API 劫持
                     if (!foundM3u8C) {
-                        console.log(`[JavDB-SenPlayer] ⚠️ Jable 均未找到，正在劫持 123AV API...`);
-                        fetch123AV_API(code);
+                        console.log(`[JavDB-SenPlayer] ⚠️ Jable 均未找到，转去 123AV...`);
+                        fetch123AV(code, false);
                     }
                 });
             }
@@ -62,88 +61,92 @@ if (body) {
 }
 
 // ==========================================
-// 核心：利用 POST 方法直接劫持 123AV API 数据
+// 核心：处理 123AV 两步走抓取逻辑 (直捣 API)
 // ==========================================
-function fetch123AV_API(code) {
-    let timestamp = new Date().getTime();
-    // 模仿你截图里的请求 URL
-    let apiUrl = `https://123av.com/zh/v/${code}?timestamp=${timestamp}`;
+function fetch123AV(code, isRetry) {
+    let targetCode = isRetry ? `${code}-c` : code;
+    let url = `https://123av.com/zh/v/${targetCode}`;
 
-    $httpClient.post({
-        url: apiUrl,
-        headers: {
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-            "Accept": "application/json, text/plain, */*",
-            // 伪装成前端 Ajax 请求（极其关键，没有它服务器不会给数据）
-            "X-Requested-With": "XMLHttpRequest",
-            "Origin": "https://123av.com",
-            "Referer": `https://123av.com/zh/v/${code}`
-        }
+    // 第一步：请求主页源码，寻找隐藏的纯数字内部 ID
+    $httpClient.get({
+        url: url,
+        headers: getFakeHeaders()
     }, function(err, resp, data) {
         if (err || !resp) {
-            console.log(`[JavDB-SenPlayer] ❌ 123AV API 请求直接报错`);
             $done({ body });
             return;
         }
 
         if (resp.status === 200) {
-            // 直接拿到包含了那个 Token 链接的 JSON 文本
-            let unescapedData = data ? data.replace(/\\/g, "") : "";
+            // 用正则提取类似于 Movie({id: 375899, code: '...'}) 中的 ID
+            let idMatch = data.match(/Movie\(\s*\{[^}]*id:\s*(\d+)/i);
             
-            // 暴力提取，不管 JSON 结构多深，直接抠出 m3u8
-            let streamReg = /(?:https?:)?\/\/[^"'\s<>]+\.(?:m3u8|mp4)[^"'\s<>]*/i;
-            let match = unescapedData.match(streamReg);
-
-            if (match) {
-                let finalUrl = match[0];
-                if (finalUrl.startsWith("//")) finalUrl = "https:" + finalUrl;
-                handleSuccess(code, finalUrl, "123AV");
+            if (idMatch && idMatch[1]) {
+                let internalId = idMatch[1];
+                console.log(`[JavDB-SenPlayer] 🔓 成功提取 123AV 内部ID: ${internalId} (${targetCode})`);
+                
+                // 拿到 ID，执行第二步
+                fetch123AVApi(internalId, code, targetCode);
             } else {
-                console.log(`[JavDB-SenPlayer] ⚠️ 123AV API 中未找到直链，尝试带 -c 的接口...`);
-                // 如果原番号没找到，顺手查一下带 -c 后缀的接口
-                fetch123AV_API_C(`${code}-c`);
+                console.log(`[JavDB-SenPlayer] ⚠️ 网页中未提取到内部 ID`);
+                if (!isRetry) fetch123AV(code, true); // 尝试 -c 后缀的网页
+                else $done({ body });
+            }
+        } else if (resp.status === 404) {
+            if (!isRetry) {
+                console.log(`[JavDB-SenPlayer] ⚠️ 123AV 网页不存在，尝试 -c 后缀...`);
+                fetch123AV(code, true);
+            } else {
+                $done({ body });
             }
         } else {
-            console.log(`[JavDB-SenPlayer] ❌ 123AV API 状态码异常: ${resp.status}`);
+            console.log(`[JavDB-SenPlayer] ❌ 123AV 访问异常，状态码: ${resp.status}`);
             $done({ body });
         }
     });
 }
 
-function fetch123AV_API_C(codeC) {
-    let timestamp = new Date().getTime();
-    let apiUrl = `https://123av.com/zh/v/${codeC}?timestamp=${timestamp}`;
-
-    $httpClient.post({
+// 第二步：拿着内部 ID，直接向隐藏 API 索要真实的直链
+function fetch123AVApi(internalId, code, targetCode) {
+    let apiUrl = `https://123av.com/zh/ajax/v/${internalId}/videos`;
+    
+    $httpClient.get({
         url: apiUrl,
+        // 这里必须伪装成浏览器的 AJAX 请求，否则会被服务器拒绝
         headers: {
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-            "Accept": "application/json, text/plain, */*",
-            "X-Requested-With": "XMLHttpRequest",
-            "Origin": "https://123av.com",
-            "Referer": `https://123av.com/zh/v/${codeC}`
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "X-Requested-With": "XMLHttpRequest", // 关键防伪造头
+            "Referer": `https://123av.com/zh/v/${targetCode}`,
+            "Accept-Language": "zh-CN,zh-Hans;q=0.9"
         }
     }, function(err, resp, data) {
-        let unescapedData = (data && resp.status === 200) ? data.replace(/\\/g, "") : "";
-        let streamReg = /(?:https?:)?\/\/[^"'\s<>]+\.(?:m3u8|mp4)[^"'\s<>]*/i;
-        let match = unescapedData.match(streamReg);
+        if (err || !resp || resp.status !== 200) {
+            console.log(`[JavDB-SenPlayer] ❌ 123AV API 请求失败，状态码: ${resp ? resp.status : '网络错误'}`);
+            $done({ body });
+            return;
+        }
 
-        if (match && resp.status === 200) {
-            let finalUrl = match[0];
-            if (finalUrl.startsWith("//")) finalUrl = "https:" + finalUrl;
-            handleSuccess(codeC, finalUrl, "123AV");
+        // 把服务器返回的数据(可能是 JSON 里的转义字符)进行反转义处理
+        let dataStr = data ? data.replace(/\\/g, "") : "";
+        let streamUrl = findStream(dataStr, "https://123av.com");
+
+        if (streamUrl) {
+            handleSuccess(code, streamUrl, "123AV");
         } else {
-            console.log(`[JavDB-SenPlayer] ❌ 123AV 资源彻底未找到。`);
+            console.log(`[JavDB-SenPlayer] ❌ 123AV API 响应中未找到直链！诊断数据: ${dataStr.substring(0, 100)}`);
             $done({ body });
         }
     });
 }
 
 // ==========================================
-// 提取流媒体直链 (用于 Jable 和通用提取)
+// 提取 M3U8/MP4 直链 (兼容各种坑爹路径)
 // ==========================================
 function findStream(data, domain) {
     if (!data) return null;
+    
+    // 匹配包含 http 的绝对路径，或者 // 开头的相对路径
     let streamReg = /(?:https?:)?\/\/[^"'\s<>]+\.(?:m3u8|mp4)[^"'\s<>]*/i;
     let match = data.match(streamReg);
     if (match) {
@@ -152,6 +155,7 @@ function findStream(data, domain) {
         return url;
     }
     
+    // 匹配 / 开头的本地相对路径
     let relReg = /["'](\/[^"'\s<>]+\.(?:m3u8|mp4)[^"'\s<>]*)/i;
     let relMatch = data.match(relReg);
     if (relMatch) {
@@ -161,7 +165,7 @@ function findStream(data, domain) {
 }
 
 // ==========================================
-// 伪装请求头
+// 伪装普通请求头
 // ==========================================
 function getFakeHeaders() {
     return {
