@@ -1,6 +1,5 @@
 let body = typeof $response !== 'undefined' ? $response.body : null;
 
-// 使用 if-else 结构替代非法的全局 return
 if (body) {
     // 1. 匹配标准番号
     let idReg = /([a-zA-Z]{2,6}-\d{3,5})/i;
@@ -58,12 +57,11 @@ if (body) {
         $done({ body });
     }
 } else {
-    // 数据为空时安全放行
     $done({});
 }
 
 // ==========================================
-// 核心：处理 123AV 穿透抓取
+// 核心：处理 123AV 穿透抓取与诊断
 // ==========================================
 function fetch123AV(url, code, step) {
     if (step > 3) {
@@ -88,7 +86,7 @@ function fetch123AV(url, code, step) {
             return;
         }
         
-        // 处理重定向 (修复了参数未递增导致死循环的 Bug)
+        // 处理重定向
         if (resp.status === 301 || resp.status === 302 || resp.status === 308) {
             let location = resp.headers['Location'] || resp.headers['location'];
             if (location) {
@@ -104,6 +102,12 @@ function fetch123AV(url, code, step) {
         if (resp.status === 200 || resp.status === 404) {
             let unescapedData = (data && resp.status === 200) ? data.replace(/\\/g, "") : "";
             
+            // 【核心诊断】：打印当前页面的 Title，瞬间判断是否被反爬虫拦截！
+            if (resp.status === 200) {
+                let titleMatch = unescapedData.match(/<title>([^<]+)<\/title>/i);
+                console.log(`[JavDB-SenPlayer] 📄 页面标题: ${titleMatch ? titleMatch[1].trim() : "无标题"}`);
+            }
+            
             // 1. 直接提取当前页面的直链
             let streamUrl = findStream(unescapedData, "https://123av.com");
             if (streamUrl && resp.status === 200) {
@@ -115,7 +119,7 @@ function fetch123AV(url, code, step) {
 
             // 2. 找不到时按层级深挖
             if (step === 0) {
-                // 第 0 层：在视频页中找内嵌的 iframe 播放器
+                // 第 0 层：在视频页中找内嵌的 iframe 或 video 播放器
                 let iframeUrl = extractIframe(unescapedData);
                 if (iframeUrl && resp.status === 200) {
                     console.log(`[JavDB-SenPlayer] 🔍 视频页发现内置播放器，钻入: ${iframeUrl}`);
@@ -125,20 +129,24 @@ function fetch123AV(url, code, step) {
                     fetch123AV(`https://123av.com/zh/search?q=${code}`, code, 1);
                 }
             } else if (step === 1) {
-                // 第 1 层：在搜索页中提取真实的详情页链接
-                let linkMatch = unescapedData.match(/href=["']([^"']*\/v\/[^"']+)["']/i);
+                // 第 1 层：搜索页，提取真实的详情页链接 (兼容番号去掉了横杠的情况，如 zmar158)
+                let pureCode = code.replace("-", "");
+                let linkReg = new RegExp(`href=["']([^"']*(?:${code}|${pureCode})[^"']*)["']`, "i");
+                let linkMatch = unescapedData.match(linkReg);
+                
                 if (linkMatch && linkMatch[1]) {
                     let nextUrl = linkMatch[1].startsWith('/') ? "https://123av.com" + linkMatch[1] : linkMatch[1];
                     console.log(`[JavDB-SenPlayer] 🔗 搜索页提取到视频: ${nextUrl}`);
                     fetch123AV(nextUrl, code, 2);
                 } else {
+                    console.log(`[JavDB-SenPlayer] ❌ 搜索结果中未匹配到该影片`);
                     $done({ body });
                 }
             } else if (step === 2) {
-                // 第 2 层：在搜索进来的视频页里再找有没有 iframe
+                // 第 2 层：在搜索进来的视频页里再找 iframe
                 let iframeUrl = extractIframe(unescapedData);
                 if (iframeUrl) {
-                    console.log(`[JavDB-SenPlayer] 🔍 搜索详情页发现播放器，钻入: ${iframeUrl}`);
+                    console.log(`[JavDB-SenPlayer] 🔍 详情页发现播放器，钻入: ${iframeUrl}`);
                     fetch123AV(iframeUrl, code, 3);
                 } else {
                     $done({ body });
@@ -175,20 +183,28 @@ function findStream(data, domain) {
 }
 
 // ==========================================
-// 提取内嵌 iframe 播放器链接
+// 提取内嵌播放器链接 (增强兼容 video, source, data-src)
 // ==========================================
 function extractIframe(html) {
     if (!html) return null;
-    let iframeReg = /<iframe[^>]+src=["']([^"']+)["']/gi;
+    // 匹配 iframe 或 video 标签
+    let iframeReg = /<(?:iframe|video)[^>]+(?:src|data-src)=["']([^"']+)["']/gi;
     let match;
     while ((match = iframeReg.exec(html)) !== null) {
         let url = match[1];
-        // 过滤常见的广告链接
         if (!url.includes("ads") && !url.includes("banner") && !url.includes("ad.html")) {
             if (url.startsWith("//")) url = "https:" + url;
             if (url.startsWith("/")) url = "https://123av.com" + url;
             return url;
         }
+    }
+    // 匹配 source 标签
+    let sourceReg = /<source[^>]+src=["']([^"']+)["']/gi;
+    if ((match = sourceReg.exec(html)) !== null) {
+        let url = match[1];
+        if (url.startsWith("//")) url = "https:" + url;
+        if (url.startsWith("/")) url = "https://123av.com" + url;
+        return url;
     }
     return null;
 }
