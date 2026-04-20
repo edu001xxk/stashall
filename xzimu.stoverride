@@ -10,7 +10,7 @@ http:
 
   script:
 # > X字幕_user_updateStatus
-    - match: ^http:\/\/apps\.tltgame\.com\/api\/user\/updateStatus
+    - match: "^https?:\\/\\/apps\\.tltgame\\.com\\/api\\/user\\/updateStatus"
       name: "xzimu_unlock"
       type: response
       require-body: true
@@ -18,7 +18,7 @@ http:
       timeout: 60
 
 # > X字幕_task_offline_post_请求体
-    - match: ^http:\/\/apps\.tltgame\.com\/api\/task\/offline\/post
+    - match: "^https?:\\/\\/apps\\.tltgame\\.com\\/api\\/task\\/offline\\/post"
       name: "xzimu_unlock"
       type: request
       require-body: true
@@ -26,7 +26,7 @@ http:
       timeout: 60
 
 # > X字幕_task_offline_post_响应体
-    - match: ^http:\/\/apps\.tltgame\.com\/api\/task\/offline\/post
+    - match: "^https?:\\/\\/apps\\.tltgame\\.com\\/api\\/task\\/offline\\/post"
       name: "xzimu_unlock"
       type: response
       require-body: true
