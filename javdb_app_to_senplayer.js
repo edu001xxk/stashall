@@ -85,7 +85,6 @@ function fetchMissAV(url, code, step) {
         }
 
         if (step === 0) {
-            console.log(`[JavDB-SenPlayer] 尝试使用 MissAV 搜索接口...`);
             fetchMissAV(`https://missav.ws/cn/search/${code}`, code, 1);
         } else if (step === 1) {
             let pureCode = code.replace("-", "");
@@ -173,18 +172,23 @@ function fetchSupJav(url, code, step) {
 }
 
 // ==========================================
-// 顺位四：JavGuru (兜底)
+// 顺位四：JavGuru (终极兜底 - 开启无限套娃穿透)
 // ==========================================
 function fetchJavGuru(url, code, step) {
-    if (step > 2) {
-        console.log(`[JavDB-SenPlayer] ❌ JavGuru 尝试耗尽，所有站源均未找到该影片。`);
+    if (step > 4) { // 最高允许钻探 4 层 iframe
+        console.log(`[JavDB-SenPlayer] ❌ JavGuru 嵌套过深，所有站源均未找到该影片。`);
         $done({ body: originalBody });
         return;
     }
 
     $httpClient.get({
         url: url,
-        headers: getFakeHeaders()
+        headers: {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh-Hans;q=0.9",
+            "Referer": url // 保留 Referer 防止防盗链
+        }
     }, function(err, resp, data) {
         if (err || !resp || resp.status === 403 || resp.status === 503) {
             console.log(`[JavDB-SenPlayer] ❌ JavGuru 报错或遭遇 CF 盾，搜索终止。`);
@@ -217,7 +221,6 @@ function fetchJavGuru(url, code, step) {
             let linkReg = new RegExp(`href=["'](https?:\\/\\/jav\\.guru\\/\\d+\\/[^"']*(?:${code}|${pureCode})[^"']*)["']`, "i");
             let linkMatch = dataStr.match(linkReg);
             
-            // 兼容容错：如果没有明确带有番号的链接，抓取任意一个视频页面链接
             if (!linkMatch) {
                 linkMatch = dataStr.match(/href=["'](https?:\/\/jav\.guru\/\d+\/[^"']+)["']/i);
             }
@@ -229,19 +232,16 @@ function fetchJavGuru(url, code, step) {
                 console.log(`[JavDB-SenPlayer] ❌ JavGuru 搜索无结果，搜索终止。`);
                 $done({ body: originalBody });
             }
-        } else if (step === 1) {
-            // 第 1 层：寻找嵌套的 iframe 播放器
+        } else {
+            // 第 1, 2, 3 层：如果没有直链，继续在当前页面寻找下一层嵌套的 iframe
             let iframeUrl = extractIframe(dataStr, "https://jav.guru");
             if (iframeUrl) {
-                console.log(`[JavDB-SenPlayer] 🔍 JavGuru 发现嵌套播放器，钻入...`);
-                fetchJavGuru(iframeUrl, code, 2);
+                console.log(`[JavDB-SenPlayer] 🔍 深入第 ${step} 层嵌套播放器: ${iframeUrl}`);
+                fetchJavGuru(iframeUrl, code, step + 1);
             } else {
-                console.log(`[JavDB-SenPlayer] ❌ JavGuru 视频页未找到播放器，搜索终止。`);
+                console.log(`[JavDB-SenPlayer] ❌ 第 ${step} 层未找到下层嵌套或直链，搜索终止。`);
                 $done({ body: originalBody });
             }
-        } else {
-            console.log(`[JavDB-SenPlayer] ❌ 穷尽所有线路，未找到直链。`);
-            $done({ body: originalBody });
         }
     });
 }
@@ -268,21 +268,29 @@ function findStream(data, domain) {
 }
 
 // ==========================================
-// 通用工具：提取 iframe 播放器链接
+// 通用工具：提取 iframe 播放器链接 (增强雷达，优先锁定真实播放器)
 // ==========================================
 function extractIframe(html, domain) {
     if (!html) return null;
     let iframeReg = /<iframe[^>]+src=["']([^"']+)["']/gi;
     let match;
+    let fallbackUrl = null;
+    
     while ((match = iframeReg.exec(html)) !== null) {
         let url = match[1];
-        if (!url.includes("ads") && !url.includes("banner") && !url.includes("ad.html")) {
+        // 过滤常见的广告、弹窗链接
+        if (!url.includes("ads") && !url.includes("banner") && !url.includes("ad.html") && !url.includes("pop")) {
             if (url.startsWith("//")) url = "https:" + url;
-            if (url.startsWith("/")) url = domain + url;
-            return url;
+            else if (url.startsWith("/")) url = domain + url;
+            
+            // 优先返回带有播放器特征的链接
+            if (url.includes("play") || url.includes("video") || url.includes("embed") || url.includes("player")) {
+                return url;
+            }
+            if (!fallbackUrl) fallbackUrl = url;
         }
     }
-    return null;
+    return fallbackUrl;
 }
 
 // ==========================================
