@@ -1,325 +1,117 @@
-let originalBody = typeof $response !== 'undefined' ? $response.body : null;
+let body = $response.body;
 
-if (originalBody) {
-    let idReg = /([a-zA-Z]{2,6}-\d{3,5})/i;
-    let match = originalBody.match(idReg);
-
-    if (match && match[1]) {
-        let code = match[1].toLowerCase();
-        console.log(`\n[JavDB-SenPlayer] 🔍 开始搜索番号: ${code.toUpperCase()}`);
-
-        checkJable(code, false);
-    } else {
-        $done({ body: originalBody });
-    }
-} else {
+if (!body) {
     $done({});
 }
 
+// 1. 匹配标准番号
+let idReg = /([a-zA-Z]{2,6}-\d{3,5})/i;
+let match = body.match(idReg);
+
+if (match && match[1]) {
+    let code = match[1].toLowerCase();
+    console.log(`\n[JavDB-SenPlayer] 🔍 开始搜索番号: ${code.toUpperCase()}`);
+
+    let jableUrl = `https://jable.tv/videos/${code}/`;
+
+    // 2. 优先请求 Jable
+    $httpClient.get({
+        url: jableUrl,
+        headers: getFakeHeaders()
+    }, function(error, response, data) {
+        let foundM3u8 = false;
+
+        if (!error && response.status === 200) {
+            let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
+            let m3u8Match = data.match(m3u8Reg);
+            if (m3u8Match) {
+                foundM3u8 = true;
+                handleSuccess(code, m3u8Match[0], "Jable");
+            }
+        }
+        
+        // 3. 备用方案：Jable没找到，转而搜索 MissAV
+        if (!foundM3u8) {
+            console.log(`[JavDB-SenPlayer] ⚠️ Jable 未找到或被拦截，转去 MissAV...`);
+            fetchMissAV(`https://missav.ai/cn/${code}`, code, 0);
+        }
+    });
+} else {
+    $done({ body });
+}
+
 // ==========================================
-// 顺位一：Jable
+// 核心：处理 MissAV 请求与 CF 盾诊断
 // ==========================================
-function checkJable(code, isRetry) {
-    let targetCode = isRetry ? `${code}-c` : code;
-    let url = `https://jable.tv/videos/${targetCode}/`;
+function fetchMissAV(url, code, redirectCount) {
+    if (redirectCount > 3) {
+        console.log(`[JavDB-SenPlayer] ❌ MissAV 重定向次数过多，已停止请求`);
+        $done({ body });
+        return;
+    }
     
     $httpClient.get({
         url: url,
         headers: getFakeHeaders()
     }, function(err, resp, data) {
-        if (!err && resp && resp.status === 200) {
-            let m3u8Url = findStream(data, "https://jable.tv");
-            if (m3u8Url) {
-                handleSuccess(code, m3u8Url, "Jable");
-                return;
-            }
+        if (err) {
+            console.log(`[JavDB-SenPlayer] ❌ MissAV 网络请求直接报错: ${err}`);
+            $done({ body });
+            return;
         }
         
-        if (!isRetry) {
-            console.log(`[JavDB-SenPlayer] ⚠️ Jable 未找到，尝试 -c 后缀...`);
-            checkJable(code, true);
-        } else {
-            console.log(`[JavDB-SenPlayer] ⚠️ Jable 均未找到或被拦截，转去第二顺位 MissAV...`);
-            fetchMissAV(`https://missav.ws/cn/${code}`, code, 0);
-        }
-    });
-}
-
-// ==========================================
-// 顺位二：MissAV 
-// ==========================================
-function fetchMissAV(url, code, step) {
-    if (step > 2) {
-        console.log(`[JavDB-SenPlayer] ⚠️ MissAV 尝试耗尽，转去第三顺位 SupJav...`);
-        fetchSupJav(`https://supjav.com/zh/?s=${code}`, code, 0);
-        return;
-    }
-
-    $httpClient.get({
-        url: url,
-        headers: getFakeHeaders()
-    }, function(err, resp, data) {
-        if (err || !resp || resp.status === 403 || resp.status === 503) {
-            console.log(`[JavDB-SenPlayer] ❌ MissAV 报错或遭遇 CF 盾，转去 SupJav...`);
-            fetchSupJav(`https://supjav.com/zh/?s=${code}`, code, 0);
+        // 【CF 盾检测】
+        if (resp.status === 403 || resp.status === 503) {
+            console.log(`[JavDB-SenPlayer] 🛡️ 遭遇 CF 盾拦截！状态码: ${resp.status}，脚本无法绕过此级别防御。`);
+            $done({ body });
             return;
-        }
-
-        if (resp.status >= 300 && resp.status < 400) {
-            let loc = resp.headers['Location'] || resp.headers['location'];
-            if (loc) {
-                if (loc.startsWith('/')) loc = "https://missav.ws" + loc;
-                fetchMissAV(loc, code, step + 1);
-            } else {
-                fetchSupJav(`https://supjav.com/zh/?s=${code}`, code, 0);
-            }
-            return;
-        }
-
-        let dataStr = (data && resp.status === 200) ? data.replace(/\\/g, "") : "";
-        let m3u8Url = findStream(dataStr, "https://missav.ws");
-
-        if (m3u8Url) {
-            handleSuccess(code, m3u8Url, "MissAV");
-            return;
-        }
-
-        if (step === 0) {
-            fetchMissAV(`https://missav.ws/cn/search/${code}`, code, 1);
-        } else if (step === 1) {
-            let pureCode = code.replace("-", "");
-            let linkReg = new RegExp(`href=["'](https?:\/\/[^"']*missav[^"']*\/(?:cn|en)\/[^"']*(?:${code}|${pureCode})[^"']*)["']`, "i");
-            let linkMatch = dataStr.match(linkReg);
-            
-            if (linkMatch && linkMatch[1]) {
-                console.log(`[JavDB-SenPlayer] 🔗 找到 MissAV 视频页，钻入...`);
-                fetchMissAV(linkMatch[1], code, 2);
-            } else {
-                console.log(`[JavDB-SenPlayer] ⚠️ MissAV 搜索无结果，转去 SupJav...`);
-                fetchSupJav(`https://supjav.com/zh/?s=${code}`, code, 0);
-            }
-        } else {
-            console.log(`[JavDB-SenPlayer] ⚠️ MissAV 详情页未找到直链，转去 SupJav...`);
-            fetchSupJav(`https://supjav.com/zh/?s=${code}`, code, 0);
-        }
-    });
-}
-
-// ==========================================
-// 顺位三：SupJav
-// ==========================================
-function fetchSupJav(url, code, step) {
-    if (step > 2) {
-        console.log(`[JavDB-SenPlayer] ⚠️ SupJav 尝试耗尽，转去第四顺位 JavGuru...`);
-        fetchJavGuru(`https://jav.guru/?s=${code}`, code, 0);
-        return;
-    }
-
-    $httpClient.get({
-        url: url,
-        headers: getFakeHeaders()
-    }, function(err, resp, data) {
-        if (err || !resp || resp.status === 403 || resp.status === 503) {
-            console.log(`[JavDB-SenPlayer] ❌ SupJav 报错或遭遇 CF 盾，转去 JavGuru...`);
-            fetchJavGuru(`https://jav.guru/?s=${code}`, code, 0);
-            return;
-        }
-
-        if (resp.status >= 300 && resp.status < 400) {
-            let loc = resp.headers['Location'] || resp.headers['location'];
-            if (loc) {
-                if (loc.startsWith('/')) loc = "https://supjav.com" + loc;
-                fetchSupJav(loc, code, step + 1);
-            } else {
-                fetchJavGuru(`https://jav.guru/?s=${code}`, code, 0);
-            }
-            return;
-        }
-
-        let dataStr = (data && resp.status === 200) ? data.replace(/\\/g, "") : "";
-        let m3u8Url = findStream(dataStr, "https://supjav.com");
-
-        if (m3u8Url) {
-            handleSuccess(code, m3u8Url, "SupJav");
-            return;
-        }
-
-        if (step === 0) {
-            let linkReg = /href=["'](https?:\/\/(?:www\.)?supjav\.com\/(?:[a-z]{2}\/)?\w+\.html)["']/i;
-            let linkMatch = dataStr.match(linkReg);
-
-            if (linkMatch && linkMatch[1]) {
-                console.log(`[JavDB-SenPlayer] 🔗 找到 SupJav 视频页，钻入...`);
-                fetchSupJav(linkMatch[1], code, 1);
-            } else {
-                console.log(`[JavDB-SenPlayer] ⚠️ SupJav 搜索无结果，转去 JavGuru...`);
-                fetchJavGuru(`https://jav.guru/?s=${code}`, code, 0);
-            }
-        } else if (step === 1) {
-            let iframeUrl = extractIframe(dataStr, "https://supjav.com");
-            if (iframeUrl) {
-                console.log(`[JavDB-SenPlayer] 🔍 SupJav 发现嵌套播放器，钻入...`);
-                fetchSupJav(iframeUrl, code, 2);
-            } else {
-                console.log(`[JavDB-SenPlayer] ⚠️ SupJav 视频页未找到播放器，转去 JavGuru...`);
-                fetchJavGuru(`https://jav.guru/?s=${code}`, code, 0);
-            }
-        } else {
-            console.log(`[JavDB-SenPlayer] ⚠️ SupJav 未找到直链，转去 JavGuru...`);
-            fetchJavGuru(`https://jav.guru/?s=${code}`, code, 0);
-        }
-    });
-}
-
-// ==========================================
-// 顺位四：JavGuru 
-// ==========================================
-function fetchJavGuru(url, code, step) {
-    if (step > 4) {
-        console.log(`[JavDB-SenPlayer] ❌ JavGuru 嵌套过深，所有线路彻底穷尽。`);
-        $done({ body: originalBody });
-        return;
-    }
-
-    $httpClient.get({
-        url: url,
-        headers: {
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "zh-CN,zh-Hans;q=0.9",
-            "Referer": url
-        }
-    }, function(err, resp, data) {
-        if (err || !resp || resp.status === 403 || resp.status === 503) {
-            console.log(`[JavDB-SenPlayer] ❌ JavGuru 报错或遭遇 CF 盾，全站搜索终止。`);
-            $done({ body: originalBody });
-            return;
-        }
-
-        if (resp.status >= 300 && resp.status < 400) {
-            let loc = resp.headers['Location'] || resp.headers['location'];
-            if (loc) {
-                if (loc.startsWith('/')) loc = "https://jav.guru" + loc;
-                fetchJavGuru(loc, code, step + 1);
-            } else {
-                $done({ body: originalBody });
-            }
-            return;
-        }
-
-        let dataStr = (data && resp.status === 200) ? data.replace(/\\/g, "") : "";
-        let m3u8Url = findStream(dataStr, "https://jav.guru");
-
-        if (m3u8Url) {
-            handleSuccess(code, m3u8Url, "JavGuru");
-            return;
-        }
-
-        if (step === 0) {
-            let pureCode = code.replace("-", "");
-            let linkReg = new RegExp(`href=["'](https?:\\/\\/jav\\.guru\\/\\d+\\/[^"']*(?:${code}|${pureCode})[^"']*)["']`, "i");
-            let linkMatch = dataStr.match(linkReg);
-            
-            if (!linkMatch) {
-                linkMatch = dataStr.match(/href=["'](https?:\/\/jav\.guru\/\d+\/[^"']+)["']/i);
-            }
-
-            if (linkMatch && linkMatch[1]) {
-                console.log(`[JavDB-SenPlayer] 🔗 找到 JavGuru 视频页，钻入...`);
-                fetchJavGuru(linkMatch[1], code, 1);
-            } else {
-                console.log(`[JavDB-SenPlayer] ❌ JavGuru 搜索无结果，搜索终止。`);
-                $done({ body: originalBody });
-            }
-        } else {
-            let iframeUrl = extractIframe(dataStr, "https://jav.guru");
-            if (iframeUrl) {
-                console.log(`[JavDB-SenPlayer] 🔍 深入嵌套层，追踪播放器: ${iframeUrl}`);
-                fetchJavGuru(iframeUrl, code, step + 1);
-            } else {
-                console.log(`[JavDB-SenPlayer] ❌ 第 ${step} 层未找到下层嵌套或直链，搜索终止。`);
-                $done({ body: originalBody });
-            }
-        }
-    });
-}
-
-// ==========================================
-// 通用工具：提取 M3U8/MP4 直链
-// ==========================================
-function findStream(data, domain) {
-    if (!data) return null;
-    let streamReg = /(?:https?:)?\/\/[^"'\s<>]+\.(?:m3u8|mp4)[^"'\s<>]*/i;
-    let match = data.match(streamReg);
-    if (match) {
-        let url = match[0];
-        if (url.startsWith("//")) url = "https:" + url;
-        return url;
-    }
-    
-    let relReg = /["'](\/[^"'\s<>]+\.(?:m3u8|mp4)[^"'\s<>]*)/i;
-    let relMatch = data.match(relReg);
-    if (relMatch) {
-        return domain + relMatch[1];
-    }
-    return null;
-}
-
-// ==========================================
-// 通用工具：工业级提取 iframe，自动规避懒加载和屏蔽广告
-// ==========================================
-function extractIframe(html, domain) {
-    if (!html) return null;
-    // 扩展雷达：兼容 iframe、video、source 标签，兼容 src、data-src、data-litespeed-src 属性
-    let iframeReg = /<(?:iframe|video|source)[^>]+(?:src|data-src|data-litespeed-src)=["']([^"']+)["']/gi;
-    let match;
-    let fallbackUrl = null;
-    let diagnosticUrls = [];
-    
-    // 黑名单
-    let adKeywords = ["ads", "banner", "ad.html", "pop", "widgets", "creative", "mnaspm", "exosrv", "realsrv", "campaignid", "affiliate", "tracker", "clicks", "histats"];
-    // 白名单
-    let playerKeywords = ["play", "video", "embed", "player", "stream", "dood", "netu", "hxfile", "waaw", "vidoza", "mixdrop", "jawcloud", "uqload", "voe", "upstream"];
-
-    while ((match = iframeReg.exec(html)) !== null) {
-        let url = match[1];
-        let urlLower = url.toLowerCase();
-
-        // 屏蔽无关痛痒的 js/css 文件或者空白框架
-        if (url.length < 5 || urlLower.endsWith('.js') || urlLower.endsWith('.css') || url === 'about:blank') continue;
-        diagnosticUrls.push(url);
-
-        let isAd = false;
-        for (let i = 0; i < adKeywords.length; i++) {
-            if (urlLower.includes(adKeywords[i])) {
-                isAd = true;
-                break;
-            }
-        }
-        if (isAd) continue;
-
-        if (url.startsWith("//")) url = "https:" + url;
-        else if (url.startsWith("/")) url = domain + url;
-        
-        for (let i = 0; i < playerKeywords.length; i++) {
-            if (urlLower.includes(playerKeywords[i])) {
-                return url; // 发现正牌播放器，立刻返回
-            }
         }
         
-        if (!fallbackUrl) fallbackUrl = url;
-    }
-    
-    // 【核心诊断】：如果什么都没匹配上，打印出这层网页里所有的嫌疑链接
-    if (!fallbackUrl && diagnosticUrls.length > 0) {
-        console.log(`[JavDB-SenPlayer] ⚠️ 诊断信息: 页面含以下嫌疑链接，但未能匹配白名单:\n ${diagnosticUrls.join(' \n ')}`);
-    }
-    
-    return fallbackUrl;
+        // 处理重定向
+        if (resp.status === 301 || resp.status === 302 || resp.status === 308) {
+            let location = resp.headers['Location'] || resp.headers['location'];
+            if (location) {
+                if (location.startsWith('/')) {
+                    let domain = url.match(/^https?:\/\/[^\/]+/)[0];
+                    location = domain + location;
+                }
+                console.log(`[JavDB-SenPlayer] 🔄 自动跟随重定向至: ${location}`);
+                fetchMissAV(location, code, redirectCount + 1);
+            } else {
+                $done({ body });
+            }
+            return;
+        }
+        
+        // 如果成功获取网页
+        if (resp.status === 200) {
+            let unescapedData = data.replace(/\\/g, "");
+            let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
+            let m3u8Match = unescapedData.match(m3u8Reg);
+
+            if (m3u8Match) {
+                handleSuccess(code, m3u8Match[0], "MissAV");
+            } else {
+                console.log(`[JavDB-SenPlayer] ⚠️ MissAV (状态码200) 未找到m3u8。可能是JS加密或该番号不存在。`);
+                // 打印前100个字符用于诊断
+                console.log(`[网页片段诊断]: ${data.substring(0, 150).replace(/\n/g, '')}`);
+                
+                if (redirectCount === 0) {
+                    console.log(`[JavDB-SenPlayer] 尝试使用搜索接口...`);
+                    fetchMissAV(`https://missav.ai/cn/search/${code}`, code, 1);
+                } else {
+                    $done({ body });
+                }
+            }
+        } else {
+            console.log(`[JavDB-SenPlayer] ❌ 未知错误，状态码: ${resp.status}`);
+            $done({ body });
+        }
+    });
 }
 
 // ==========================================
-// 伪装请求头
+// 伪装请求头（尝试欺骗防爬虫策略）
 // ==========================================
 function getFakeHeaders() {
     return {
@@ -333,13 +125,13 @@ function getFakeHeaders() {
 // ==========================================
 // 提取成功后的处理函数
 // ==========================================
-function handleSuccess(code, url, source) {
+function handleSuccess(code, m3u8, source) {
     console.log(`\n==================================`);
-    console.log(`🎯 [成功获取资源] 数据源: ${source}`);
-    console.log(`🔗 播放链接: ${url}`);
+    console.log(`🎯 [成功获取 M3U8] 数据源: ${source}`);
+    console.log(`🔗 播放链接: ${m3u8}`);
     console.log(`==================================\n`);
     
-    let shortcutUrl = `shortcuts://run-shortcut?name=JavPlay&input=text&text=${encodeURIComponent(url)}`;
+    let shortcutUrl = `shortcuts://run-shortcut?name=JavPlay&input=text&text=${encodeURIComponent(m3u8)}`;
     let title = `▶ 解析成功 (${source}): ${code.toUpperCase()}`;
     let subtitle = `已找到串流链接并记录至日志`;
     let content = `👇 点击弹窗立即拉起 SenPlayer`;
@@ -349,5 +141,5 @@ function handleSuccess(code, url, source) {
     } else {
         $notification.post(title, subtitle, content, shortcutUrl);
     }
-    $done({ body: originalBody });
+    $done({ body });
 }
