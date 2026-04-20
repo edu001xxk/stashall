@@ -1,7 +1,7 @@
 name: |-
-  X字幕 (xzimu) 无限翻译次数
+  X字幕破解
 desc: |-
-  @怎么肥事 修复Stash不生效问题
+  已成功绕过服务器检测，会员功能全解
 
 http:
 
@@ -9,31 +9,34 @@ http:
     - "apps.tltgame.com"
 
   script:
-# > X字幕_user_updateStatus
-    - match: "^https?:\\/\\/apps\\.tltgame\\.com\\/api\\/user\\/updateStatus"
-      name: "xzimu_unlock_res"
-      type: "response"
+# > X字幕破解1 (响应)
+    - match: '^http:\/\/apps\.tltgame\.com\/api\/user\/updateStatus'
+      name: "xzimu_1"
+      type: response
       require-body: true
-      timeout: 10
+      timeout: 60
 
-# > X字幕_task_offline_post_请求体
-    - match: "^https?:\\/\\/apps\\.tltgame\\.com\\/api\\/task\\/offline\\/post"
-      name: "xzimu_unlock_req"
-      type: "request"
+# > X字幕破解2 (请求)
+    - match: '^http:\/\/apps\.tltgame\.com\/api\/task\/offline\/post'
+      name: "xzimu_2"
+      type: request
       require-body: true
-      timeout: 10
+      timeout: 60
 
-# > X字幕_task_offline_post_响应体
-    - match: "^https?:\\/\\/apps\\.tltgame\\.com\\/api\\/task\\/offline\\/post"
-      name: "xzimu_unlock_res"
-      type: "response"
+# > X字幕破解3 (响应)
+    - match: '^http:\/\/apps\.tltgame\.com\/api\/task\/offline\/post'
+      name: "xzimu_3"
+      type: response
       require-body: true
-      timeout: 10
+      timeout: 60
 
 script-providers:
-  "xzimu_unlock_req":
+  "xzimu_1":
     url: https://raw.githubusercontent.com/ZenmoFeiShi/Qx/refs/heads/main/xzimu-unlock.js
     interval: 86400
-  "xzimu_unlock_res":
+  "xzimu_2":
+    url: https://raw.githubusercontent.com/ZenmoFeiShi/Qx/refs/heads/main/xzimu-unlock.js
+    interval: 86400
+  "xzimu_3":
     url: https://raw.githubusercontent.com/ZenmoFeiShi/Qx/refs/heads/main/xzimu-unlock.js
     interval: 86400
