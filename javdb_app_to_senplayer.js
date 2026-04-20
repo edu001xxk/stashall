@@ -98,7 +98,38 @@ function runJableCSearch(code) {
         }
         
         if (!foundM3u8) {
-            console.log(`[JavDB-SenPlayer] ❌ Jable 原番号及 -c 后缀均未找到，解析结束。`);
+            console.log(`[JavDB-SenPlayer] ⚠️ Jable 原番号及 -c 后缀均未找到，尝试第二顺位 Missav...`);
+            runMissavSearch(code);
+        }
+    });
+}
+
+// ==========================================
+// 独立函数 3：请求 Missav (第二顺位)
+// ==========================================
+function runMissavSearch(code) {
+    // Missav 可以直接通过 https://missav.com/{番号} 进行匹配或跳转
+    let missavUrl = `https://missav.com/${code}`;
+    $httpClient.get({
+        url: missavUrl,
+        headers: getFakeHeaders()
+    }, function(error, response, data) {
+        let foundM3u8 = false;
+        
+        if (!error && response && response.status === 200) {
+            // Missav 的 HTML 代码中有时会将 URL 的反斜杠转义，例如 https:\/\/... 这里先全局替换复原
+            let htmlData = data ? data.replace(/\\\//g, "/") : "";
+            let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
+            let m3u8Match = htmlData.match(m3u8Reg);
+            
+            if (m3u8Match) {
+                foundM3u8 = true;
+                handleSuccess(code, m3u8Match[0], "Missav");
+            }
+        }
+        
+        if (!foundM3u8) {
+            console.log(`[JavDB-SenPlayer] ❌ Jable 及 Missav 均未找到该番号对应的资源，解析结束。`);
             $done({ body });
         }
     });
@@ -130,6 +161,7 @@ function handleSuccess(code, m3u8, source) {
     let subtitle = `已找到串流链接并记录至日志`;
     let content = `👇 点击弹窗立即拉起 SenPlayer`;
 
+    // 兼容 Stash 和 Surge/Loon/QX 通知跳转的差异
     if (typeof $environment !== 'undefined' && $environment['stash-version']) {
         $notification.post(title, subtitle, content, { url: shortcutUrl });
     } else {
