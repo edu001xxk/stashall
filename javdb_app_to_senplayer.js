@@ -83,18 +83,16 @@ function runJableCSearch(code) {
 // ==========================================
 function runMissavSearch(code) {
     let missavUrl = `https://missav.ai/cn/${code}`;
-    // 构建唤醒 Scriptable 的专属 URL Scheme
-    let scriptableUrl = `scriptable:///run/MissavExtractor?url=${encodeURIComponent(missavUrl)}`;
+    
+    // 🚨 修复点 1：使用官方标准的 ?scriptName= 传参格式
+    let scriptableUrl = `scriptable:///run?scriptName=MissavExtractor&url=${encodeURIComponent(missavUrl)}`;
     
     let title = `▶ Missav 深度解析: ${code.toUpperCase()}`;
     let subtitle = `Jable 无资源，转交本地引擎过盾提取`;
     let content = `👇 点击此弹窗，全自动破盾并拉起 SenPlayer`;
 
-    if (typeof $environment !== 'undefined' && $environment['stash-version']) {
-        $notification.post(title, subtitle, content, { url: scriptableUrl });
-    } else {
-        $notification.post(title, subtitle, content, scriptableUrl);
-    }
+    // 🚨 修复点 2：去除对象包装，直接传入纯字符串 URL，解决点击退回 Stash 的 Bug
+    $notification.post(title, subtitle, content, scriptableUrl);
     $done({ body });
 }
 
@@ -111,10 +109,7 @@ function handleSuccess(code, m3u8, source) {
     let subtitle = `✅ 链接获取成功`;
     let content = `👇 点击弹窗立即拉起 SenPlayer`;
 
-    if (typeof $environment !== 'undefined' && $environment['stash-version']) {
-        $notification.post(title, subtitle, content, { url: shortcutUrl });
-    } else {
-        $notification.post(title, subtitle, content, shortcutUrl);
-    }
+    // 同样优化成功时的通知跳转
+    $notification.post(title, subtitle, content, shortcutUrl);
     $done({ body });
 }
