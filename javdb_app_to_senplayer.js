@@ -3,20 +3,17 @@ let body = (typeof $response !== "undefined" && $response.body) ? $response.body
 if (!body) {
     $done({});
 } else {
-    // 提取 body 中所有的番号 (加了 g 标志进行全局匹配)
+    // 提取 body 中所有的番号
     let idRegGlobal = /([a-zA-Z]{2,6}-\d{3,5})/gi;
     let allMatches = body.match(idRegGlobal);
 
     if (allMatches && allMatches.length > 0) {
-        // 转小写并去重，统计这个数据包里有多少个【不同】的番号
         let uniqueCodes = new Set(allMatches.map(c => c.toLowerCase()));
         
-        // 🌟 核心防误弹逻辑 🌟
-        // 超过 5 个不同番号，说明是首页推荐或列表，直接跳过
+        // 核心防误弹逻辑：超过 5 个不同番号，说明是首页推荐或列表，直接跳过
         if (uniqueCodes.size > 5) {
             $done({ body });
         } else {
-            // 取第一个匹配到的作为目标番号
             let code = allMatches[0].toLowerCase();
             
             // --- 防并发锁 ---
@@ -107,7 +104,7 @@ function runMissavSearch(code) {
     let missavUrl = `https://missav.ai/cn/${code}`;
     $httpClient.get({
         url: missavUrl,
-        headers: getFakeHeaders("missav") // 使用针对 Missav 的特殊 Header
+        headers: getFakeHeaders("missav")
     }, function(error, response, data) {
         if (error || !response || response.status !== 200) {
             console.log(`[JavDB-SenPlayer] ❌ Missav 未找到该资源 (404/拦截)，全网搜索结束。`);
@@ -115,7 +112,6 @@ function runMissavSearch(code) {
             return;
         }
         
-        // 调用我们新增的超强提取引擎
         let m3u8 = extractM3u8FromMissav(data);
         
         if (m3u8) {
@@ -128,21 +124,16 @@ function runMissavSearch(code) {
 }
 
 // ==========================================
-// 🌟 核心科技：Missav 专用解密与提取引擎 🌟
+// Missav 专用解密与提取引擎
 // ==========================================
 function extractM3u8FromMissav(html) {
     if (!html) return null;
-    
-    // 1. 去除干扰字符，处理基础转义
     let text = html.replace(/\\\//g, "/");
     let m3u8Reg = /https?:\/\/[^"'\`\s<>]+\.m3u8[^"'\`\s<>]*/i;
     
-    // 2. 尝试第一层：直接正则匹配（如果他们没加密的话）
     let match = text.match(m3u8Reg);
     if (match) return match[0];
     
-    // 3. 尝试第二层：解密 eval(function(p,a,c,k,e,d)...)
-    // 很多网站喜欢把真实地址混淆压缩在这段 JS 里面
     let packReg = /eval\s*\(\s*function\s*\(\s*p\s*,\s*a\s*,\s*c\s*,\s*k\s*,\s*e\s*,\s*d\s*\)[\s\S]+?\}\s*\(\s*(['"])([\s\S]+?)\1\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(['"])([\s\S]+?)\5\.split\('\|'\)/g;
     let packMatch;
     
@@ -163,25 +154,20 @@ function extractM3u8FromMissav(html) {
                 }
             }
             
-            // 在解密出来的原始代码中找 m3u8
             p = p.replace(/\\\//g, "/");
             let innerMatch = p.match(m3u8Reg);
             if (innerMatch) {
                 console.log(`[JavDB-SenPlayer] 🔓 成功破解 Missav 加密代码，获取到真实链接！`);
                 return innerMatch[0];
             }
-        } catch (err) {
-            // 解析单段失败，继续尝试下一个加密块
-        }
+        } catch (err) {}
     }
     
-    // 4. 尝试第三层：终极备用方案 (暴力提取 UUID 组装)
-    // 如果找到了类似 a1b2c3d4-e5f6... 的视频专有 UUID，直接尝试套用 Missav 常见的主干节点
     let uuidReg = /([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i;
     let uuidMatch = text.match(uuidReg);
     if (uuidMatch) {
         let uuid = uuidMatch[1];
-        console.log(`[JavDB-SenPlayer] ⚠️ 未直接找到 M3U8，尝试使用提取的 UUID 强行组装备用链接: ${uuid}`);
+        console.log(`[JavDB-SenPlayer] ⚠️ 尝试使用提取的 UUID 强行组装备用链接: ${uuid}`);
         return `https://surrit.com/${uuid}/playlist.m3u8`;
     }
     
@@ -189,7 +175,7 @@ function extractM3u8FromMissav(html) {
 }
 
 // ==========================================
-// 伪装请求头 (增加应对机制)
+// 伪装请求头
 // ==========================================
 function getFakeHeaders(type) {
     let headers = {
@@ -198,8 +184,6 @@ function getFakeHeaders(type) {
         "Accept-Language": "zh-CN,zh-Hans;q=0.9,en;q=0.8",
         "Connection": "keep-alive"
     };
-    
-    // 针对 Missav 加一点特殊的伪装，防止被盾
     if (type === "missav") {
         headers["Referer"] = "https://missav.ai/";
         headers["Cookie"] = "vip=1; age_warning_done=1;"; 
@@ -208,17 +192,27 @@ function getFakeHeaders(type) {
 }
 
 // ==========================================
-// 提取成功后的处理函数
+// 🌟 修改点：针对防盗链增加 Referer 注入 🌟
 // ==========================================
 function handleSuccess(code, m3u8, source) {
     console.log(`\n==================================`);
     console.log(`🎯 [成功获取 M3U8] 数据源: ${source}`);
-    console.log(`🔗 播放链接: ${m3u8}`);
+    console.log(`🔗 原始链接: ${m3u8}`);
+    
+    let finalM3u8 = m3u8;
+    
+    // 如果是 Missav (也就是 surrit.com 的链接)，必须加上 Referer 才能绕过 Cloudflare 拦截
+    if (source === "Missav" || m3u8.includes("surrit.com")) {
+        // 利用播放器支持的 HTTP Header 注入语法
+        finalM3u8 = m3u8 + "|Referer=https://missav.ai/";
+        console.log(`🛡️ 附加防盗链绕过头: ${finalM3u8}`);
+    }
+    
     console.log(`==================================\n`);
     
-    let shortcutUrl = `shortcuts://run-shortcut?name=JavPlay&input=text&text=${encodeURIComponent(m3u8)}`;
+    let shortcutUrl = `shortcuts://run-shortcut?name=JavPlay&input=text&text=${encodeURIComponent(finalM3u8)}`;
     let title = `▶ 解析成功 (${source}): ${code.toUpperCase()}`;
-    let subtitle = `已找到串流链接并记录至日志`;
+    let subtitle = `已找到串流并绕过防盗链`;
     let content = `👇 点击弹窗立即拉起 SenPlayer`;
 
     if (typeof $environment !== 'undefined' && $environment['stash-version']) {
