@@ -1,52 +1,50 @@
+// 安全获取 url 和 body，防止 Stash 环境变量缺失报错
 let url = (typeof $request !== "undefined" && $request.url) ? $request.url : "";
 let body = (typeof $response !== "undefined" && $response.body) ? $response.body : "";
 
-// 1. 如果没有返回体，直接结束
 if (!body) {
     $done({});
 } 
-// 2. 过滤非详情页 (解决刚打开APP就弹窗)，匹配到这些关键字直接放行
-else if (url && url.match(/\/(home|index|list|rank|search|actors|makers|popular|trending)/i)) {
+// 1. 路由过滤：如果你打开的是首页、列表页等，Stash 直接放行，不执行搜索，解决“刚打开App就弹窗”
+else if (url.match(/\/(home|index|list|rank|search|actors|makers|popular|trending|update)/i)) {
     $done({ body });
 } 
-// 3. 核心业务逻辑
+// 2. 核心执行逻辑
 else {
     let idReg = /([a-zA-Z]{2,6}-\d{3,5})/i;
     let match = body.match(idReg);
 
-    // 如果匹配到了番号
     if (match && match[1]) {
         let code = match[1].toLowerCase();
         
-        // --- 时间戳防并发锁 ---
-        let cacheKey = "javdb_lock_" + code;
+        // ==========================================
+        // Stash 专用：10秒并发锁 (解决1~2秒内连续弹窗两次)
+        // ==========================================
+        let cacheKey = "javdb_stash_lock_" + code;
         let now = Date.now();
         let lastTime = 0;
 
-        // 兼容不同代理工具的本地存储
+        // Stash 支持 $persistentStore API 进行本地持久化存储
         if (typeof $persistentStore !== "undefined") {
-            lastTime = parseInt($persistentStore.read(cacheKey) || "0");
-        } else if (typeof $prefs !== "undefined") {
-            lastTime = parseInt($prefs.valueForKey(cacheKey) || "0");
+            let cacheStr = $persistentStore.read(cacheKey);
+            if (cacheStr) lastTime = parseInt(cacheStr);
         }
 
-        // 如果距离上次解析同一番号小于 10 秒，拦截防抖
+        // 如果距离上次搜索这个番号不到 10 秒（10000毫秒），直接结束
         if (now - lastTime < 10000) {
-            console.log(`\n[JavDB-SenPlayer] ♻️ 10秒内重复请求 ${code.toUpperCase()}，已拦截防抖。`);
+            console.log(`\n[JavDB-SenPlayer] ♻️ Stash 防抖拦截: 10秒内重复请求了 ${code.toUpperCase()}`);
             $done({ body });
         } else {
-            // 写入当前时间戳，锁定 10 秒
+            // 写入当前时间，锁定这个番号 10 秒
             if (typeof $persistentStore !== "undefined") {
                 $persistentStore.write(now.toString(), cacheKey);
-            } else if (typeof $prefs !== "undefined") {
-                $prefs.setValueForKey(now.toString(), cacheKey);
             }
-
+            
             console.log(`\n[JavDB-SenPlayer] 🔍 开始搜索番号: ${code.toUpperCase()}`);
             runJableSearch(code);
         }
     } else {
-        // 没找到番号，直接结束
+        // 没有找到番号，直接放行
         $done({ body });
     }
 }
@@ -106,7 +104,7 @@ function runJableCSearch(code) {
 }
 
 // ==========================================
-// 伪装请求头
+// 伪装请求头（完全保留原样）
 // ==========================================
 function getFakeHeaders() {
     return {
@@ -118,7 +116,7 @@ function getFakeHeaders() {
 }
 
 // ==========================================
-// 提取成功后的处理函数
+// 提取成功后的处理函数（包含 Stash 专用的弹窗参数格式）
 // ==========================================
 function handleSuccess(code, m3u8, source) {
     console.log(`\n==================================`);
@@ -131,10 +129,12 @@ function handleSuccess(code, m3u8, source) {
     let subtitle = `已找到串流链接并记录至日志`;
     let content = `👇 点击弹窗立即拉起 SenPlayer`;
 
+    // Stash 的 notification 支持传入包含 url 的对象实现点击跳转
     if (typeof $environment !== 'undefined' && $environment['stash-version']) {
         $notification.post(title, subtitle, content, { url: shortcutUrl });
     } else {
         $notification.post(title, subtitle, content, shortcutUrl);
     }
+    
     $done({ body });
 }
