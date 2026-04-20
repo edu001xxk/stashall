@@ -1,4 +1,4 @@
-let body = $response.body;
+let body = typeof $response !== 'undefined' ? $response.body : null;
 
 if (!body) {
     $done({});
@@ -12,21 +12,16 @@ let match = body.match(idReg);
 if (match && match[1]) {
     let code = match[1].toLowerCase();
     console.log(`\n[JavDB-SenPlayer] 🔍 开始搜索番号: ${code.toUpperCase()}`);
-    runJableSearch(code);
-} else {
-    $done({ body });
-}
 
-// ==========================================
-// 独立函数 1：请求 Jable 原番号
-// ==========================================
-function runJableSearch(code) {
     let jableUrl = `https://jable.tv/videos/${code}/`;
+
+    // 2. 优先请求 Jable
     $httpClient.get({
         url: jableUrl,
         headers: getFakeHeaders()
     }, function(error, response, data) {
         let foundM3u8 = false;
+
         if (!error && response && response.status === 200) {
             let m3u8Url = findStream(data, "https://jable.tv");
             if (m3u8Url) {
@@ -35,44 +30,43 @@ function runJableSearch(code) {
             }
         }
         
+        // 3. Jable没找到，嵌套尝试 Jable -c 后缀 (这种原汁原味的写法最不容易触发Stash的Bug)
         if (!foundM3u8) {
-            console.log(`[JavDB-SenPlayer] ⚠️ Jable 原番号未找到，尝试带 -c 后缀...`);
-            runJableCSearch(code);
+            console.log(`[JavDB-SenPlayer] ⚠️ Jable 未找到，尝试加上 -c 后缀...`);
+            let jableUrlC = `https://jable.tv/videos/${code}-c/`;
+            
+            $httpClient.get({
+                url: jableUrlC,
+                headers: getFakeHeaders()
+            }, function(errC, respC, dataC) {
+                let foundM3u8C = false;
+
+                if (!errC && respC && respC.status === 200) {
+                    let m3u8UrlC = findStream(dataC, "https://jable.tv");
+                    if (m3u8UrlC) {
+                        foundM3u8C = true;
+                        handleSuccess(code, m3u8UrlC, "Jable");
+                    }
+                }
+
+                // 4. 备用方案：Jable 均未找到，转去 123AV
+                if (!foundM3u8C) {
+                    console.log(`[JavDB-SenPlayer] ⚠️ Jable 均未找到或被拦截，转去 123AV...`);
+                    fetch123AV(`https://123av.com/zh/v/${code}`, code, 0);
+                }
+            });
         }
     });
+} else {
+    $done({ body });
 }
 
 // ==========================================
-// 独立函数 2：请求 Jable -c 后缀
-// ==========================================
-function runJableCSearch(code) {
-    let jableUrlC = `https://jable.tv/videos/${code}-c/`;
-    $httpClient.get({
-        url: jableUrlC,
-        headers: getFakeHeaders()
-    }, function(error, response, data) {
-        let foundM3u8 = false;
-        if (!error && response && response.status === 200) {
-            let m3u8Url = findStream(data, "https://jable.tv");
-            if (m3u8Url) {
-                foundM3u8 = true;
-                handleSuccess(code, m3u8Url, "Jable");
-            }
-        }
-        
-        if (!foundM3u8) {
-            console.log(`[JavDB-SenPlayer] ⚠️ Jable 均未找到，转去 123AV...`);
-            fetch123AV(`https://123av.com/zh/v/${code}`, code, 0);
-        }
-    });
-}
-
-// ==========================================
-// 独立函数 3：处理 123AV 穿透抓取 (全新状态机)
+// 核心：处理 123AV 穿透抓取
 // ==========================================
 function fetch123AV(url, code, step) {
     if (step > 3) {
-        console.log(`[JavDB-SenPlayer] ❌ 123AV 尝试路径耗尽，未找到资源`);
+        console.log(`[JavDB-SenPlayer] ❌ 123AV 尝试路径耗尽，已停止请求`);
         $done({ body });
         return;
     }
@@ -82,22 +76,23 @@ function fetch123AV(url, code, step) {
         headers: getFakeHeaders()
     }, function(err, resp, data) {
         if (err || !resp) {
-            console.log(`[JavDB-SenPlayer] ❌ 123AV 网络请求报错`);
+            console.log(`[JavDB-SenPlayer] ❌ 123AV 网络请求直接报错`);
             $done({ body });
             return;
         }
         
         if (resp.status === 403 || resp.status === 503) {
-            console.log(`[JavDB-SenPlayer] 🛡️ 123AV 遭遇 CF 拦截！`);
+            console.log(`[JavDB-SenPlayer] 🛡️ 遭遇 CF 盾拦截！状态码: ${resp.status}`);
             $done({ body });
             return;
         }
         
-        // 自动跟随重定向
-        if (resp.status >= 300 && resp.status < 400) {
+        // 处理重定向
+        if (resp.status === 301 || resp.status === 302 || resp.status === 308) {
             let location = resp.headers['Location'] || resp.headers['location'];
             if (location) {
                 if (location.startsWith('/')) location = "https://123av.com" + location;
+                console.log(`[JavDB-SenPlayer] 🔄 自动跟随重定向至: ${location}`);
                 fetch123AV(location, code, step);
             } else {
                 $done({ body });
@@ -105,74 +100,60 @@ function fetch123AV(url, code, step) {
             return;
         }
         
-        let unescapedData = (data && resp.status === 200) ? data.replace(/\\/g, "") : "";
-        let streamUrl = findStream(unescapedData, "https://123av.com");
+        if (resp.status === 200 || resp.status === 404) {
+            let unescapedData = (data && resp.status === 200) ? data.replace(/\\/g, "") : "";
+            
+            // 1. 直接提取直链
+            let streamUrl = findStream(unescapedData, "https://123av.com");
+            if (streamUrl && resp.status === 200) {
+                handleSuccess(code, streamUrl, "123AV");
+                return;
+            }
+            
+            console.log(`[JavDB-SenPlayer] ⚠️ 123AV 当前路径(${resp.status})未找到直链。`);
 
-        // 无论在哪一层，只要当前页面有视频流直链，直接成功
-        if (streamUrl && resp.status === 200) {
-            handleSuccess(code, streamUrl, "123AV");
-            return;
-        }
-        
-        // 状态机处理不同层级的解析逻辑
-        if (step === 0) {
-            // 第 0 层：直接访问番号视频页
-            if (resp.status === 200) {
+            // 2. 找不到时按层级深挖
+            if (step === 0) {
+                // 第 0 层：当前是视频页，找一找里面有没有内置 iframe 播放器
                 let iframeUrl = extractIframe(unescapedData);
-                if (iframeUrl) {
-                    console.log(`[JavDB-SenPlayer] 🔍 视频页发现内置播放器(iframe)，钻入抓取: ${iframeUrl}`);
+                if (iframeUrl && resp.status === 200) {
+                    console.log(`[JavDB-SenPlayer] 🔍 视频页发现内置播放器，钻入: ${iframeUrl}`);
                     fetch123AV(iframeUrl, code, 3);
                 } else {
-                    console.log(`[JavDB-SenPlayer] ⚠️ 视频页未找到直链或播放器，退回尝试搜索...`);
+                    console.log(`[JavDB-SenPlayer] 尝试使用搜索接口...`);
                     fetch123AV(`https://123av.com/zh/search?q=${code}`, code, 1);
                 }
-            } else {
-                console.log(`[JavDB-SenPlayer] ⚠️ 视频页(${resp.status})不存在，尝试搜索...`);
-                fetch123AV(`https://123av.com/zh/search?q=${code}`, code, 1);
-            }
-        } 
-        else if (step === 1) {
-            // 第 1 层：搜索结果页
-            if (resp.status === 200) {
-                // 在搜索结果代码中，精准提取 /v/xxx 格式的真实视频链接
+            } else if (step === 1) {
+                // 第 1 层：当前是搜索页，提取真实的详情页链接
                 let linkMatch = unescapedData.match(/href=["']([^"']*\/v\/[^"']+)["']/i);
                 if (linkMatch && linkMatch[1]) {
                     let nextUrl = linkMatch[1].startsWith('/') ? "https://123av.com" + linkMatch[1] : linkMatch[1];
-                    console.log(`[JavDB-SenPlayer] 🔗 搜索页提取到匹配视频: ${nextUrl}`);
+                    console.log(`[JavDB-SenPlayer] 🔗 搜索页提取到视频: ${nextUrl}`);
                     fetch123AV(nextUrl, code, 2);
                 } else {
-                    console.log(`[JavDB-SenPlayer] ❌ 搜索页中未找到相关影片`);
                     $done({ body });
                 }
-            } else {
-                $done({ body });
-            }
-        } 
-        else if (step === 2) {
-            // 第 2 层：通过搜索页提取到的真实视频页
-            if (resp.status === 200) {
+            } else if (step === 2) {
+                // 第 2 层：通过搜索进来的视频页，再找找有没有 iframe
                 let iframeUrl = extractIframe(unescapedData);
                 if (iframeUrl) {
-                    console.log(`[JavDB-SenPlayer] 🔍 真实视频页发现内置播放器，钻入抓取: ${iframeUrl}`);
+                    console.log(`[JavDB-SenPlayer] 🔍 搜索详情页发现播放器，钻入: ${iframeUrl}`);
                     fetch123AV(iframeUrl, code, 3);
                 } else {
-                    console.log(`[JavDB-SenPlayer] ❌ 真实视频页依然未找到资源`);
                     $done({ body });
                 }
             } else {
                 $done({ body });
             }
-        } 
-        else if (step === 3) {
-            // 第 3 层：iframe 播放器页（最深的一层了）
-            console.log(`[JavDB-SenPlayer] ❌ 最底层的 iframe 播放器中也未提取到直链`);
+        } else {
+            console.log(`[JavDB-SenPlayer] ❌ 未知错误，状态码: ${resp.status}`);
             $done({ body });
         }
     });
 }
 
 // ==========================================
-// 辅助函数：提取 M3U8 或 MP4 (兼容相对/绝对路径)
+// 提取 M3U8/MP4 直链 (兼容相对路径)
 // ==========================================
 function findStream(data, domain) {
     if (!data) return null;
@@ -193,7 +174,7 @@ function findStream(data, domain) {
 }
 
 // ==========================================
-// 辅助函数：提取嵌套播放器的 iframe 链接
+// 提取内嵌 iframe 播放器链接
 // ==========================================
 function extractIframe(html) {
     if (!html) return null;
@@ -201,7 +182,7 @@ function extractIframe(html) {
     let match;
     while ((match = iframeReg.exec(html)) !== null) {
         let url = match[1];
-        // 过滤掉显而易见的广告代码
+        // 过滤常见的广告链接
         if (!url.includes("ads") && !url.includes("banner") && !url.includes("ad.html")) {
             if (url.startsWith("//")) url = "https:" + url;
             if (url.startsWith("/")) url = "https://123av.com" + url;
@@ -212,22 +193,23 @@ function extractIframe(html) {
 }
 
 // ==========================================
-// 伪装请求头
+// 伪装请求头（完全保留原样）
 // ==========================================
 function getFakeHeaders() {
     return {
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "zh-CN,zh-Hans;q=0.9"
+        "Accept-Language": "zh-CN,zh-Hans;q=0.9",
+        "Connection": "keep-alive"
     };
 }
 
 // ==========================================
-// 成功回调处理
+// 提取成功后的处理函数（完全保留原样）
 // ==========================================
 function handleSuccess(code, url, source) {
     console.log(`\n==================================`);
-    console.log(`🎯 [成功获取流媒体] 数据源: ${source}`);
+    console.log(`🎯 [成功获取资源] 数据源: ${source}`);
     console.log(`🔗 播放链接: ${url}`);
     console.log(`==================================\n`);
     
