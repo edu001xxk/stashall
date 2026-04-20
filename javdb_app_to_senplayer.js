@@ -30,10 +30,33 @@ if (match && match[1]) {
             }
         }
         
-        // 3. 备用方案：Jable没找到，转而搜索 MissAV
+        // 3. Jable没找到，尝试 Jable -c 后缀
         if (!foundM3u8) {
-            console.log(`[JavDB-SenPlayer] ⚠️ Jable 未找到或被拦截，转去 MissAV...`);
-            fetchMissAV(`https://missav.ai/cn/${code}`, code, 0);
+            console.log(`[JavDB-SenPlayer] ⚠️ Jable 未找到，尝试加上 -c 后缀...`);
+            let jableUrlC = `https://jable.tv/videos/${code}-c/`;
+            
+            $httpClient.get({
+                url: jableUrlC,
+                headers: getFakeHeaders()
+            }, function(errC, respC, dataC) {
+                let foundM3u8C = false;
+
+                if (!errC && respC.status === 200) {
+                    let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
+                    let m3u8MatchC = dataC.match(m3u8Reg);
+                    if (m3u8MatchC) {
+                        foundM3u8C = true;
+                        handleSuccess(code, m3u8MatchC[0], "Jable");
+                    }
+                }
+
+                // 4. 备用方案：Jable -c也未找到，转而搜索 123AV
+                if (!foundM3u8C) {
+                    console.log(`[JavDB-SenPlayer] ⚠️ Jable 均未找到或被拦截，转去 123AV...`);
+                    // 使用你提供的参考链接格式
+                    fetch123AV(`https://123av.com/zh/v/${code}`, code, 0);
+                }
+            });
         }
     });
 } else {
@@ -41,11 +64,11 @@ if (match && match[1]) {
 }
 
 // ==========================================
-// 核心：处理 MissAV 请求与 CF 盾诊断
+// 核心：处理 123AV 请求与 CF 盾诊断
 // ==========================================
-function fetchMissAV(url, code, redirectCount) {
+function fetch123AV(url, code, redirectCount) {
     if (redirectCount > 3) {
-        console.log(`[JavDB-SenPlayer] ❌ MissAV 重定向次数过多，已停止请求`);
+        console.log(`[JavDB-SenPlayer] ❌ 123AV 重定向次数过多，已停止请求`);
         $done({ body });
         return;
     }
@@ -55,7 +78,7 @@ function fetchMissAV(url, code, redirectCount) {
         headers: getFakeHeaders()
     }, function(err, resp, data) {
         if (err) {
-            console.log(`[JavDB-SenPlayer] ❌ MissAV 网络请求直接报错: ${err}`);
+            console.log(`[JavDB-SenPlayer] ❌ 123AV 网络请求直接报错: ${err}`);
             $done({ body });
             return;
         }
@@ -76,7 +99,7 @@ function fetchMissAV(url, code, redirectCount) {
                     location = domain + location;
                 }
                 console.log(`[JavDB-SenPlayer] 🔄 自动跟随重定向至: ${location}`);
-                fetchMissAV(location, code, redirectCount + 1);
+                fetch123AV(location, code, redirectCount + 1);
             } else {
                 $done({ body });
             }
@@ -90,15 +113,16 @@ function fetchMissAV(url, code, redirectCount) {
             let m3u8Match = unescapedData.match(m3u8Reg);
 
             if (m3u8Match) {
-                handleSuccess(code, m3u8Match[0], "MissAV");
+                handleSuccess(code, m3u8Match[0], "123AV");
             } else {
-                console.log(`[JavDB-SenPlayer] ⚠️ MissAV (状态码200) 未找到m3u8。可能是JS加密或该番号不存在。`);
+                console.log(`[JavDB-SenPlayer] ⚠️ 123AV (状态码200) 未找到m3u8。可能是JS加密或该番号不存在。`);
                 // 打印前100个字符用于诊断
                 console.log(`[网页片段诊断]: ${data.substring(0, 150).replace(/\n/g, '')}`);
                 
                 if (redirectCount === 0) {
                     console.log(`[JavDB-SenPlayer] 尝试使用搜索接口...`);
-                    fetchMissAV(`https://missav.ai/cn/search/${code}`, code, 1);
+                    // 同样替换为 123av 的域名
+                    fetch123AV(`https://123av.com/zh/search/${code}`, code, 1);
                 } else {
                     $done({ body });
                 }
