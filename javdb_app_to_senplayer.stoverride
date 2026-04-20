@@ -27,5 +27,5 @@ http:
 
 script-providers:
   "javdb_app_to_senplayer":
-    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js?v=36353
+    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js?v=363353
     interval: 86400
