@@ -11,14 +11,12 @@ if (!body) {
         // 转小写并去重，统计这个数据包里有多少个【不同】的番号
         let uniqueCodes = new Set(allMatches.map(c => c.toLowerCase()));
         
-        // 🌟 核心防误弹逻辑 🌟
-        // 如果包含超过 5 个不同的番号，说明这绝对是首页的推荐列表或排行榜，直接跳过！
+        // 🌟 恢复原本好用的防误弹逻辑 🌟
+        // 如果包含超过 5 个不同的番号，说明是首页推荐或列表，直接跳过！
         if (uniqueCodes.size > 5) {
-            // console.log(`[JavDB-SenPlayer] 识别为列表页 (包含 ${uniqueCodes.size} 个番号)，跳过执行。`);
             $done({ body });
         } else {
-            // 如果是详情页，通常只有当前影片的主番号（偶尔带一两个关联番号）
-            // 我们取第一个匹配到的作为目标番号
+            // 取第一个匹配到的作为目标番号
             let code = allMatches[0].toLowerCase();
             
             // --- Stash 10秒防并发锁 ---
@@ -32,10 +30,9 @@ if (!body) {
             }
 
             if (now - lastTime < 10000) {
-                console.log(`\n[JavDB-SenPlayer] ♻️ Stash 防抖拦截: 10秒内重复请求了 ${code.toUpperCase()}`);
+                console.log(`[JavDB-SenPlayer] ♻️ 防抖拦截: 10秒内重复请求了 ${code.toUpperCase()}`);
                 $done({ body });
             } else {
-                // 写入锁定时间
                 if (typeof $persistentStore !== "undefined") {
                     $persistentStore.write(now.toString(), cacheKey);
                 }
@@ -45,13 +42,12 @@ if (!body) {
             }
         }
     } else {
-        // 没找到番号，直接放行
         $done({ body });
     }
 }
 
 // ==========================================
-// 独立函数 1：请求 Jable 原番号
+// 第 1 顺位：请求 Jable 原番号
 // ==========================================
 function runJableSearch(code) {
     let jableUrl = `https://jable.tv/videos/${code}/`;
@@ -59,26 +55,26 @@ function runJableSearch(code) {
         url: jableUrl,
         headers: getFakeHeaders()
     }, function(error, response, data) {
-        let foundM3u8 = false;
-        
-        if (!error && response && response.status === 200) {
-            let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
-            let m3u8Match = data ? data.match(m3u8Reg) : null;
-            if (m3u8Match) {
-                foundM3u8 = true;
-                handleSuccess(code, m3u8Match[0], "Jable");
-            }
+        if (error || !response || response.status !== 200) {
+            console.log(`[JavDB-SenPlayer] ⚠️ Jable 未找到原番号 (404)，尝试带 -c 后缀...`);
+            runJableCSearch(code);
+            return;
         }
         
-        if (!foundM3u8) {
-            console.log(`[JavDB-SenPlayer] ⚠️ Jable 原番号未找到，尝试带 -c 后缀...`);
+        let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
+        let m3u8Match = data ? data.match(m3u8Reg) : null;
+        
+        if (m3u8Match) {
+            handleSuccess(code, m3u8Match[0], "Jable");
+        } else {
+            console.log(`[JavDB-SenPlayer] ⚠️ Jable 页面存在但未提取到 M3U8，尝试带 -c 后缀...`);
             runJableCSearch(code);
         }
     });
 }
 
 // ==========================================
-// 独立函数 2：请求 Jable -c 后缀
+// 第 2 顺位：请求 Jable -c 后缀
 // ==========================================
 function runJableCSearch(code) {
     let jableUrlC = `https://jable.tv/videos/${code}-c/`;
@@ -86,50 +82,49 @@ function runJableCSearch(code) {
         url: jableUrlC,
         headers: getFakeHeaders()
     }, function(error, response, data) {
-        let foundM3u8 = false;
-        
-        if (!error && response && response.status === 200) {
-            let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
-            let m3u8Match = data ? data.match(m3u8Reg) : null;
-            if (m3u8Match) {
-                foundM3u8 = true;
-                handleSuccess(code, m3u8Match[0], "Jable");
-            }
+        if (error || !response || response.status !== 200) {
+            console.log(`[JavDB-SenPlayer] ⚠️ Jable -c 后缀未找到 (404)，转去 Missav...`);
+            runMissavSearch(code);
+            return;
         }
         
-        if (!foundM3u8) {
-            console.log(`[JavDB-SenPlayer] ⚠️ Jable 原番号及 -c 后缀均未找到，尝试第二顺位 Missav...`);
+        let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
+        let m3u8Match = data ? data.match(m3u8Reg) : null;
+        
+        if (m3u8Match) {
+            handleSuccess(code, m3u8Match[0], "Jable (-c)");
+        } else {
+            console.log(`[JavDB-SenPlayer] ⚠️ Jable -c 未提取到 M3U8，转去 Missav...`);
             runMissavSearch(code);
         }
     });
 }
 
 // ==========================================
-// 独立函数 3：请求 Missav (第二顺位)
+// 第 3 顺位：请求 Missav (使用新域名 missav.ai)
 // ==========================================
 function runMissavSearch(code) {
-    // Missav 可以直接通过 https://missav.com/{番号} 进行匹配或跳转
-    let missavUrl = `https://missav.com/${code}`;
+    // 🌟 更新为最新的 Missav 域名 🌟
+    let missavUrl = `https://missav.ai/cn/${code}`;
     $httpClient.get({
         url: missavUrl,
         headers: getFakeHeaders()
     }, function(error, response, data) {
-        let foundM3u8 = false;
-        
-        if (!error && response && response.status === 200) {
-            // Missav 的 HTML 代码中有时会将 URL 的反斜杠转义，例如 https:\/\/... 这里先全局替换复原
-            let htmlData = data ? data.replace(/\\\//g, "/") : "";
-            let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
-            let m3u8Match = htmlData.match(m3u8Reg);
-            
-            if (m3u8Match) {
-                foundM3u8 = true;
-                handleSuccess(code, m3u8Match[0], "Missav");
-            }
+        if (error || !response || response.status !== 200) {
+            console.log(`[JavDB-SenPlayer] ❌ Missav (missav.ai) 也未找到该资源 (404)，全网搜索结束。`);
+            $done({ body });
+            return;
         }
         
-        if (!foundM3u8) {
-            console.log(`[JavDB-SenPlayer] ❌ Jable 及 Missav 均未找到该番号对应的资源，解析结束。`);
+        // Missav 转义字符复原
+        let htmlData = data ? data.replace(/\\\//g, "/") : "";
+        let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
+        let m3u8Match = htmlData.match(m3u8Reg);
+        
+        if (m3u8Match) {
+            handleSuccess(code, m3u8Match[0], "Missav");
+        } else {
+            console.log(`[JavDB-SenPlayer] ❌ Missav 页面存在但未提取到播放链接，解析结束。`);
             $done({ body });
         }
     });
@@ -161,7 +156,6 @@ function handleSuccess(code, m3u8, source) {
     let subtitle = `已找到串流链接并记录至日志`;
     let content = `👇 点击弹窗立即拉起 SenPlayer`;
 
-    // 兼容 Stash 和 Surge/Loon/QX 通知跳转的差异
     if (typeof $environment !== 'undefined' && $environment['stash-version']) {
         $notification.post(title, subtitle, content, { url: shortcutUrl });
     } else {
