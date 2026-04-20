@@ -4,7 +4,7 @@ if (!body) {
     $done({});
 }
 
-// 1. 匹配标准番号
+// 1. 匹配标准番号 
 let idReg = /([a-zA-Z]{2,6}-\d{3,5})/i;
 let match = body.match(idReg);
 
