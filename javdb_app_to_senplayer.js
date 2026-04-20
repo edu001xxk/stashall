@@ -4,71 +4,80 @@ if (!body) {
     $done({});
 }
 
-// 1. 匹配标准番号 
+// 1. 匹配标准番号 (加了安全判空防崩溃)
 let idReg = /([a-zA-Z]{2,6}-\d{3,5})/i;
-let match = body.match(idReg);
+let match = body ? body.match(idReg) : null;
 
 if (match && match[1]) {
     let code = match[1].toLowerCase();
     console.log(`\n[JavDB-SenPlayer] 🔍 开始搜索番号: ${code.toUpperCase()}`);
+    
+    // 把请求拆解为独立函数调用，彻底解决变量被系统回收的报错 Bug
+    runJableSearch(code);
+} else {
+    $done({ body });
+}
 
+// ==========================================
+// 独立函数 1：请求 Jable 原番号
+// ==========================================
+function runJableSearch(code) {
     let jableUrl = `https://jable.tv/videos/${code}/`;
-
-    // 2. 优先请求 Jable
     $httpClient.get({
         url: jableUrl,
         headers: getFakeHeaders()
     }, function(error, response, data) {
         let foundM3u8 = false;
-
-        if (!error && response.status === 200) {
+        
+        if (!error && response && response.status === 200) {
             let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
-            let m3u8Match = data.match(m3u8Reg);
+            let m3u8Match = data ? data.match(m3u8Reg) : null;
             if (m3u8Match) {
                 foundM3u8 = true;
                 handleSuccess(code, m3u8Match[0], "Jable");
             }
         }
         
-        // 3. Jable没找到，尝试 Jable -c 后缀
         if (!foundM3u8) {
-            console.log(`[JavDB-SenPlayer] ⚠️ Jable 未找到，尝试加上 -c 后缀...`);
-            let jableUrlC = `https://jable.tv/videos/${code}-c/`;
-            
-            $httpClient.get({
-                url: jableUrlC,
-                headers: getFakeHeaders()
-            }, function(errC, respC, dataC) {
-                let foundM3u8C = false;
-
-                if (!errC && respC.status === 200) {
-                    let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
-                    let m3u8MatchC = dataC.match(m3u8Reg);
-                    if (m3u8MatchC) {
-                        foundM3u8C = true;
-                        handleSuccess(code, m3u8MatchC[0], "Jable");
-                    }
-                }
-
-                // 4. 备用方案：Jable -c也未找到，转而搜索 123AV
-                if (!foundM3u8C) {
-                    console.log(`[JavDB-SenPlayer] ⚠️ Jable 均未找到或被拦截，转去 123AV...`);
-                    // 使用你提供的参考链接格式
-                    fetch123AV(`https://123av.com/zh/v/${code}`, code, 0);
-                }
-            });
+            console.log(`[JavDB-SenPlayer] ⚠️ Jable 原番号未找到，尝试带 -c 后缀...`);
+            runJableCSearch(code);
         }
     });
-} else {
-    $done({ body });
 }
 
 // ==========================================
-// 核心：处理 123AV 请求与 CF 盾诊断
+// 独立函数 2：请求 Jable -c 后缀
+// ==========================================
+function runJableCSearch(code) {
+    let jableUrlC = `https://jable.tv/videos/${code}-c/`;
+    $httpClient.get({
+        url: jableUrlC,
+        headers: getFakeHeaders()
+    }, function(error, response, data) {
+        let foundM3u8 = false;
+        
+        if (!error && response && response.status === 200) {
+            let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
+            let m3u8Match = data ? data.match(m3u8Reg) : null;
+            if (m3u8Match) {
+                foundM3u8 = true;
+                handleSuccess(code, m3u8Match[0], "Jable");
+            }
+        }
+        
+        if (!foundM3u8) {
+            console.log(`[JavDB-SenPlayer] ⚠️ Jable 均未找到，转去 123AV...`);
+            fetch123AV(`https://123av.com/zh/v/${code}`, code, 0);
+        }
+    });
+}
+
+// ==========================================
+// 独立函数 3：处理 123AV 请求
 // ==========================================
 function fetch123AV(url, code, redirectCount) {
     if (redirectCount > 3) {
-        console.log(`[JavDB-SenPlayer] ❌ 123AV 重定向次数过多，已停止请求`);
+        console.log(`[JavDB-SenPlayer] ❌ 123AV 重试次数过多，已停止请求`);
         $done({ body });
         return;
     }
@@ -77,25 +86,24 @@ function fetch123AV(url, code, redirectCount) {
         url: url,
         headers: getFakeHeaders()
     }, function(err, resp, data) {
-        if (err) {
-            console.log(`[JavDB-SenPlayer] ❌ 123AV 网络请求直接报错: ${err}`);
+        if (err || !resp) {
+            console.log(`[JavDB-SenPlayer] ❌ 123AV 网络请求直接报错`);
             $done({ body });
             return;
         }
         
-        // 【CF 盾检测】
         if (resp.status === 403 || resp.status === 503) {
-            console.log(`[JavDB-SenPlayer] 🛡️ 遭遇 CF 盾拦截！状态码: ${resp.status}，脚本无法绕过此级别防御。`);
+            console.log(`[JavDB-SenPlayer] 🛡️ 遭遇 CF 盾拦截！状态码: ${resp.status}`);
             $done({ body });
             return;
         }
         
-        // 处理重定向
         if (resp.status === 301 || resp.status === 302 || resp.status === 308) {
             let location = resp.headers['Location'] || resp.headers['location'];
             if (location) {
                 if (location.startsWith('/')) {
-                    let domain = url.match(/^https?:\/\/[^\/]+/)[0];
+                    let domainMatch = url.match(/^https?:\/\/[^\/]+/);
+                    let domain = domainMatch ? domainMatch[0] : "https://123av.com";
                     location = domain + location;
                 }
                 console.log(`[JavDB-SenPlayer] 🔄 自动跟随重定向至: ${location}`);
@@ -106,23 +114,25 @@ function fetch123AV(url, code, redirectCount) {
             return;
         }
         
-        // 如果成功获取网页
-        if (resp.status === 200) {
-            let unescapedData = data.replace(/\\/g, "");
-            let m3u8Reg = /https?:\/\/[^"'\s<>]+\.m3u8/i;
+        if (resp.status === 200 || resp.status === 404) {
+            let unescapedData = (data && resp.status === 200) ? data.replace(/\\/g, "") : "";
+            
+            // 兼容 123AV 的相对路径提取
+            let m3u8Reg = /(?:https?:)?\/\/[^"'\s<>]+\.m3u8|\/[^"'\s<>]+\.m3u8/i;
             let m3u8Match = unescapedData.match(m3u8Reg);
 
-            if (m3u8Match) {
-                handleSuccess(code, m3u8Match[0], "123AV");
+            if (m3u8Match && resp.status === 200) {
+                let finalUrl = m3u8Match[0];
+                if (finalUrl.startsWith("//")) finalUrl = "https:" + finalUrl;
+                if (finalUrl.startsWith("/")) finalUrl = "https://123av.com" + finalUrl;
+                
+                handleSuccess(code, finalUrl, "123AV");
             } else {
-                console.log(`[JavDB-SenPlayer] ⚠️ 123AV (状态码200) 未找到m3u8。可能是JS加密或该番号不存在。`);
-                // 打印前100个字符用于诊断
-                console.log(`[网页片段诊断]: ${data.substring(0, 150).replace(/\n/g, '')}`);
+                console.log(`[JavDB-SenPlayer] ⚠️ 123AV 当前链接(${resp.status})未找到m3u8。`);
                 
                 if (redirectCount === 0) {
                     console.log(`[JavDB-SenPlayer] 尝试使用搜索接口...`);
-                    // 同样替换为 123av 的域名
-                    fetch123AV(`https://123av.com/zh/search/${code}`, code, 1);
+                    fetch123AV(`https://123av.com/zh/search?q=${code}`, code, 1);
                 } else {
                     $done({ body });
                 }
@@ -135,7 +145,7 @@ function fetch123AV(url, code, redirectCount) {
 }
 
 // ==========================================
-// 伪装请求头（尝试欺骗防爬虫策略）
+// 伪装请求头（完全保留原样）
 // ==========================================
 function getFakeHeaders() {
     return {
@@ -147,7 +157,7 @@ function getFakeHeaders() {
 }
 
 // ==========================================
-// 提取成功后的处理函数
+// 提取成功后的处理函数（完全保留原样）
 // ==========================================
 function handleSuccess(code, m3u8, source) {
     console.log(`\n==================================`);
