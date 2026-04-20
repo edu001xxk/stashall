@@ -1,7 +1,7 @@
 name: |-
   JavDB App to SenPlayer
 desc: |-
-  完美版：javdv自动跳转senplayer
+  完美版：jav自动跳转sen
 
 http:
 
@@ -27,5 +27,5 @@ http:
 
 script-providers:
   "javdb_app_to_senplayer":
-    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js?v=6353
+    url: https://raw.githubusercontent.com/edu001xxk/stashall/refs/heads/main/javdb_app_to_senplayer.js?v=8853
     interval: 86400
