@@ -40,14 +40,13 @@ function checkJable(code, isRetry) {
             checkJable(code, true);
         } else {
             console.log(`[JavDB-SenPlayer] ⚠️ Jable 均未找到，转去第二顺位 MissAV...`);
-            // 【域名更新】换成最新的 missav.ws
             fetchMissAV(`https://missav.ws/cn/${code}`, code, 0);
         }
     });
 }
 
 // ==========================================
-// 顺位二：MissAV (域名更新为 missav.ws)
+// 顺位二：MissAV 
 // ==========================================
 function fetchMissAV(url, code, step) {
     if (step > 2) {
@@ -61,7 +60,7 @@ function fetchMissAV(url, code, step) {
         headers: getFakeHeaders()
     }, function(err, resp, data) {
         if (err || !resp || resp.status === 403 || resp.status === 503) {
-            console.log(`[JavDB-SenPlayer] ❌ MissAV 报错或遭遇 CF 盾 (建议更换 Stash 节点IP)，转去 SupJav...`);
+            console.log(`[JavDB-SenPlayer] ❌ MissAV 报错或遭遇 CF 盾，转去 SupJav...`);
             fetchSupJav(`https://supjav.com/zh/?s=${code}`, code, 0);
             return;
         }
@@ -90,7 +89,6 @@ function fetchMissAV(url, code, step) {
             fetchMissAV(`https://missav.ws/cn/search/${code}`, code, 1);
         } else if (step === 1) {
             let pureCode = code.replace("-", "");
-            // 兼容域名变动，只要匹配 missav 即可
             let linkReg = new RegExp(`href=["'](https?:\/\/[^"']*missav[^"']*\/(?:cn|en)\/[^"']*(?:${code}|${pureCode})[^"']*)["']`, "i");
             let linkMatch = dataStr.match(linkReg);
             
@@ -109,12 +107,12 @@ function fetchMissAV(url, code, step) {
 }
 
 // ==========================================
-// 顺位三：SupJav (兜底)
+// 顺位三：SupJav
 // ==========================================
 function fetchSupJav(url, code, step) {
     if (step > 2) {
-        console.log(`[JavDB-SenPlayer] ❌ SupJav 尝试耗尽，所有站源均未找到该影片。`);
-        $done({ body: originalBody });
+        console.log(`[JavDB-SenPlayer] ⚠️ SupJav 尝试耗尽，转去第四顺位 JavGuru...`);
+        fetchJavGuru(`https://jav.guru/?s=${code}`, code, 0);
         return;
     }
 
@@ -123,8 +121,8 @@ function fetchSupJav(url, code, step) {
         headers: getFakeHeaders()
     }, function(err, resp, data) {
         if (err || !resp || resp.status === 403 || resp.status === 503) {
-            console.log(`[JavDB-SenPlayer] ❌ SupJav 报错或遭遇 CF 盾 (请尝试更换节点)，搜索终止。`);
-            $done({ body: originalBody });
+            console.log(`[JavDB-SenPlayer] ❌ SupJav 报错或遭遇 CF 盾，转去 JavGuru...`);
+            fetchJavGuru(`https://jav.guru/?s=${code}`, code, 0);
             return;
         }
 
@@ -134,7 +132,7 @@ function fetchSupJav(url, code, step) {
                 if (loc.startsWith('/')) loc = "https://supjav.com" + loc;
                 fetchSupJav(loc, code, step + 1);
             } else {
-                $done({ body: originalBody });
+                fetchJavGuru(`https://jav.guru/?s=${code}`, code, 0);
             }
             return;
         }
@@ -155,27 +153,101 @@ function fetchSupJav(url, code, step) {
                 console.log(`[JavDB-SenPlayer] 🔗 找到 SupJav 视频页，钻入...`);
                 fetchSupJav(linkMatch[1], code, 1);
             } else {
-                console.log(`[JavDB-SenPlayer] ❌ SupJav 搜索无结果，搜索终止。`);
+                console.log(`[JavDB-SenPlayer] ⚠️ SupJav 搜索无结果，转去 JavGuru...`);
+                fetchJavGuru(`https://jav.guru/?s=${code}`, code, 0);
+            }
+        } else if (step === 1) {
+            let iframeUrl = extractIframe(dataStr, "https://supjav.com");
+            if (iframeUrl) {
+                console.log(`[JavDB-SenPlayer] 🔍 SupJav 发现嵌套播放器，钻入...`);
+                fetchSupJav(iframeUrl, code, 2);
+            } else {
+                console.log(`[JavDB-SenPlayer] ⚠️ SupJav 视频页未找到播放器，转去 JavGuru...`);
+                fetchJavGuru(`https://jav.guru/?s=${code}`, code, 0);
+            }
+        } else {
+            console.log(`[JavDB-SenPlayer] ⚠️ SupJav 未找到直链，转去 JavGuru...`);
+            fetchJavGuru(`https://jav.guru/?s=${code}`, code, 0);
+        }
+    });
+}
+
+// ==========================================
+// 顺位四：JavGuru (兜底)
+// ==========================================
+function fetchJavGuru(url, code, step) {
+    if (step > 2) {
+        console.log(`[JavDB-SenPlayer] ❌ JavGuru 尝试耗尽，所有站源均未找到该影片。`);
+        $done({ body: originalBody });
+        return;
+    }
+
+    $httpClient.get({
+        url: url,
+        headers: getFakeHeaders()
+    }, function(err, resp, data) {
+        if (err || !resp || resp.status === 403 || resp.status === 503) {
+            console.log(`[JavDB-SenPlayer] ❌ JavGuru 报错或遭遇 CF 盾，搜索终止。`);
+            $done({ body: originalBody });
+            return;
+        }
+
+        if (resp.status >= 300 && resp.status < 400) {
+            let loc = resp.headers['Location'] || resp.headers['location'];
+            if (loc) {
+                if (loc.startsWith('/')) loc = "https://jav.guru" + loc;
+                fetchJavGuru(loc, code, step + 1);
+            } else {
+                $done({ body: originalBody });
+            }
+            return;
+        }
+
+        let dataStr = (data && resp.status === 200) ? data.replace(/\\/g, "") : "";
+        let m3u8Url = findStream(dataStr, "https://jav.guru");
+
+        if (m3u8Url) {
+            handleSuccess(code, m3u8Url, "JavGuru");
+            return;
+        }
+
+        if (step === 0) {
+            // 第 0 层：在搜索页提取视频详情页链接
+            let pureCode = code.replace("-", "");
+            let linkReg = new RegExp(`href=["'](https?:\\/\\/jav\\.guru\\/\\d+\\/[^"']*(?:${code}|${pureCode})[^"']*)["']`, "i");
+            let linkMatch = dataStr.match(linkReg);
+            
+            // 兼容容错：如果没有明确带有番号的链接，抓取任意一个视频页面链接
+            if (!linkMatch) {
+                linkMatch = dataStr.match(/href=["'](https?:\/\/jav\.guru\/\d+\/[^"']+)["']/i);
+            }
+
+            if (linkMatch && linkMatch[1]) {
+                console.log(`[JavDB-SenPlayer] 🔗 找到 JavGuru 视频页，钻入...`);
+                fetchJavGuru(linkMatch[1], code, 1);
+            } else {
+                console.log(`[JavDB-SenPlayer] ❌ JavGuru 搜索无结果，搜索终止。`);
                 $done({ body: originalBody });
             }
         } else if (step === 1) {
-            let iframeMatch = dataStr.match(/<iframe[^>]+src=["'](https?:\/\/(?:tv|stream)\.supjav\.com\/[^"']+)["']/i);
-            if (iframeMatch && iframeMatch[1]) {
-                console.log(`[JavDB-SenPlayer] 🔍 SupJav 发现嵌套播放器，钻入...`);
-                fetchSupJav(iframeMatch[1], code, 2);
+            // 第 1 层：寻找嵌套的 iframe 播放器
+            let iframeUrl = extractIframe(dataStr, "https://jav.guru");
+            if (iframeUrl) {
+                console.log(`[JavDB-SenPlayer] 🔍 JavGuru 发现嵌套播放器，钻入...`);
+                fetchJavGuru(iframeUrl, code, 2);
             } else {
-                console.log(`[JavDB-SenPlayer] ❌ SupJav 视频页未找到播放器，搜索终止。`);
+                console.log(`[JavDB-SenPlayer] ❌ JavGuru 视频页未找到播放器，搜索终止。`);
                 $done({ body: originalBody });
             }
         } else {
-            console.log(`[JavDB-SenPlayer] ❌ 穷尽所有线路。`);
+            console.log(`[JavDB-SenPlayer] ❌ 穷尽所有线路，未找到直链。`);
             $done({ body: originalBody });
         }
     });
 }
 
 // ==========================================
-// 提取 M3U8/MP4 直链通用工具
+// 通用工具：提取 M3U8/MP4 直链
 // ==========================================
 function findStream(data, domain) {
     if (!data) return null;
@@ -191,6 +263,24 @@ function findStream(data, domain) {
     let relMatch = data.match(relReg);
     if (relMatch) {
         return domain + relMatch[1];
+    }
+    return null;
+}
+
+// ==========================================
+// 通用工具：提取 iframe 播放器链接
+// ==========================================
+function extractIframe(html, domain) {
+    if (!html) return null;
+    let iframeReg = /<iframe[^>]+src=["']([^"']+)["']/gi;
+    let match;
+    while ((match = iframeReg.exec(html)) !== null) {
+        let url = match[1];
+        if (!url.includes("ads") && !url.includes("banner") && !url.includes("ad.html")) {
+            if (url.startsWith("//")) url = "https:" + url;
+            if (url.startsWith("/")) url = domain + url;
+            return url;
+        }
     }
     return null;
 }
