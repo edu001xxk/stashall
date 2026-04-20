@@ -1,22 +1,64 @@
+let url = $request.url || "";
 let body = $response.body;
 
 if (!body) {
     $done({});
 }
 
-// 1. 匹配标准番号 (加了安全判空防崩溃)
-let idReg = /([a-zA-Z]{2,6}-\d{3,5})/i;
-let match = body ? body.match(idReg) : null;
-
-if (match && match[1]) {
-    let code = match[1].toLowerCase();
-    console.log(`\n[JavDB-SenPlayer] 🔍 开始搜索番号: ${code.toUpperCase()}`);
-    
-    // 把请求拆解为独立函数调用，彻底解决变量被系统回收的报错 Bug
-    runJableSearch(code);
-} else {
+// ==========================================
+// 1. 过滤非详情页 (解决刚打开APP就弹窗)
+// ==========================================
+// 如果请求路径中包含首页、列表、排行、搜索等特征，直接放行并停止执行脚本
+if (url.match(/\/(home|index|list|rank|search|actors|makers|popular|trending)/i)) {
     $done({ body });
+    // 注意：JS 环境下必须 return 才能阻断后续代码执行
+    return; 
 }
+
+// ==========================================
+// 2. 匹配标准番号
+// ==========================================
+let idReg = /([a-zA-Z]{2,6}-\d{3,5})/i;
+let match = body.match(idReg);
+
+if (!match || !match[1]) {
+    $done({ body });
+    return;
+}
+
+let code = match[1].toLowerCase();
+
+// ==========================================
+// 3. 时间戳防并发锁 (解决瞬间弹窗两次)
+// ==========================================
+let cacheKey = "javdb_lock_" + code;
+let now = Date.now();
+let lastTime = 0;
+
+// 兼容不同代理工具的本地存储
+if (typeof $persistentStore !== "undefined") {
+    lastTime = parseInt($persistentStore.read(cacheKey) || "0");
+} else if (typeof $prefs !== "undefined") {
+    lastTime = parseInt($prefs.valueForKey(cacheKey) || "0");
+}
+
+// 如果距离上次解析同一个番号的时间小于 10 秒 (10000毫秒)，说明是同一页面的并发请求，直接跳过
+if (now - lastTime < 10000) {
+    console.log(`\n[JavDB-SenPlayer] ♻️ 10秒内重复请求 ${code.toUpperCase()}，已拦截防抖。`);
+    $done({ body });
+    return;
+}
+
+// 写入当前时间戳，锁定 10 秒
+if (typeof $persistentStore !== "undefined") {
+    $persistentStore.write(now.toString(), cacheKey);
+} else if (typeof $prefs !== "undefined") {
+    $prefs.setValueForKey(now.toString(), cacheKey);
+}
+
+console.log(`\n[JavDB-SenPlayer] 🔍 开始搜索番号: ${code.toUpperCase()}`);
+runJableSearch(code);
+
 
 // ==========================================
 // 独立函数 1：请求 Jable 原番号
@@ -73,7 +115,7 @@ function runJableCSearch(code) {
 }
 
 // ==========================================
-// 伪装请求头（完全保留原样）
+// 伪装请求头
 // ==========================================
 function getFakeHeaders() {
     return {
@@ -85,7 +127,7 @@ function getFakeHeaders() {
 }
 
 // ==========================================
-// 提取成功后的处理函数（完全保留原样）
+// 提取成功后的处理函数
 // ==========================================
 function handleSuccess(code, m3u8, source) {
     console.log(`\n==================================`);
