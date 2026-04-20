@@ -1,55 +1,51 @@
-// 获取请求信息
-let url = (typeof $request !== "undefined" && $request.url) ? $request.url : "";
 let body = (typeof $response !== "undefined" && $response.body) ? $response.body : "";
 
 if (!body) {
     $done({});
-} 
-// ==========================================
-// 1. 正向详情页判定 (解决首页弹窗的关键)
-// ==========================================
-// JavDB 的详情页 URL 必定包含 "/v/"。
-// 如果 URL 中不包含 "/v/"，说明是首页、搜索列表、排行等，直接退出。
-else if (!url.includes("/v/")) {
-    // console.log(`[JavDB-SenPlayer] 🔍 非详情页 (${url})，跳过解析。`);
-    $done({ body });
-} 
-// ==========================================
-// 2. 详情页处理逻辑
-// ==========================================
-else {
-    // 匹配标准番号
-    let idReg = /([a-zA-Z]{2,6}-\d{3,5})/i;
-    let match = body.match(idReg);
+} else {
+    // 提取 body 中所有的番号 (加了 g 标志进行全局匹配)
+    let idRegGlobal = /([a-zA-Z]{2,6}-\d{3,5})/gi;
+    let allMatches = body.match(idRegGlobal);
 
-    if (match && match[1]) {
-        let code = match[1].toLowerCase();
+    if (allMatches && allMatches.length > 0) {
+        // 转小写并去重，统计这个数据包里有多少个【不同】的番号
+        let uniqueCodes = new Set(allMatches.map(c => c.toLowerCase()));
         
-        // --- Stash 10秒防并发锁 ---
-        let cacheKey = "javdb_lock_final_" + code;
-        let now = Date.now();
-        let lastTime = 0;
-
-        if (typeof $persistentStore !== "undefined") {
-            let cacheStr = $persistentStore.read(cacheKey);
-            if (cacheStr) lastTime = parseInt(cacheStr);
-        }
-
-        // 10秒防抖
-        if (now - lastTime < 10000) {
-            console.log(`\n[JavDB-SenPlayer] ♻️ 拦截重复请求: ${code.toUpperCase()}`);
+        // 🌟 核心防误弹逻辑 🌟
+        // 如果包含超过 5 个不同的番号，说明这绝对是首页的推荐列表或排行榜，直接跳过！
+        if (uniqueCodes.size > 5) {
+            // console.log(`[JavDB-SenPlayer] 识别为列表页 (包含 ${uniqueCodes.size} 个番号)，跳过执行。`);
             $done({ body });
         } else {
-            // 写入锁
-            if (typeof $persistentStore !== "undefined") {
-                $persistentStore.write(now.toString(), cacheKey);
-            }
+            // 如果是详情页，通常只有当前影片的主番号（偶尔带一两个关联番号）
+            // 我们取第一个匹配到的作为目标番号
+            let code = allMatches[0].toLowerCase();
             
-            console.log(`\n[JavDB-SenPlayer] 🎯 详情页确认: ${url}`);
-            console.log(`[JavDB-SenPlayer] 🔍 开始搜索番号: ${code.toUpperCase()}`);
-            runJableSearch(code);
+            // --- Stash 10秒防并发锁 ---
+            let cacheKey = "javdb_stash_lock_" + code;
+            let now = Date.now();
+            let lastTime = 0;
+
+            if (typeof $persistentStore !== "undefined") {
+                let cacheStr = $persistentStore.read(cacheKey);
+                if (cacheStr) lastTime = parseInt(cacheStr);
+            }
+
+            if (now - lastTime < 10000) {
+                console.log(`\n[JavDB-SenPlayer] ♻️ Stash 防抖拦截: 10秒内重复请求了 ${code.toUpperCase()}`);
+                $done({ body });
+            } else {
+                // 写入锁定时间
+                if (typeof $persistentStore !== "undefined") {
+                    $persistentStore.write(now.toString(), cacheKey);
+                }
+                
+                console.log(`\n[JavDB-SenPlayer] 🔍 确认进入详情页，开始搜索番号: ${code.toUpperCase()}`);
+                runJableSearch(code);
+            }
         }
     } else {
+        // 没找到番号，直接放行
         $done({ body });
     }
 }
@@ -75,7 +71,7 @@ function runJableSearch(code) {
         }
         
         if (!foundM3u8) {
-            console.log(`[JavDB-SenPlayer] ⚠️ Jable 原番号未找到，尝试带 -c...`);
+            console.log(`[JavDB-SenPlayer] ⚠️ Jable 原番号未找到，尝试带 -c 后缀...`);
             runJableCSearch(code);
         }
     });
@@ -102,7 +98,7 @@ function runJableCSearch(code) {
         }
         
         if (!foundM3u8) {
-            console.log(`[JavDB-SenPlayer] ❌ 未找到资源，解析结束。`);
+            console.log(`[JavDB-SenPlayer] ❌ Jable 原番号及 -c 后缀均未找到，解析结束。`);
             $done({ body });
         }
     });
@@ -121,9 +117,14 @@ function getFakeHeaders() {
 }
 
 // ==========================================
-// 提取成功处理
+// 提取成功后的处理函数
 // ==========================================
 function handleSuccess(code, m3u8, source) {
+    console.log(`\n==================================`);
+    console.log(`🎯 [成功获取 M3U8] 数据源: ${source}`);
+    console.log(`🔗 播放链接: ${m3u8}`);
+    console.log(`==================================\n`);
+    
     let shortcutUrl = `shortcuts://run-shortcut?name=JavPlay&input=text&text=${encodeURIComponent(m3u8)}`;
     let title = `▶ 解析成功 (${source}): ${code.toUpperCase()}`;
     let subtitle = `已找到串流链接并记录至日志`;
